@@ -8,12 +8,17 @@
 # ignoré plutôt que de faire échouer l'ensemble.
 
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 # ansible-lint et ansible-playbook sont lances depuis la racine du depot, alors
-# que les collections sont installees sous ansible/collections : sans cela,
-# chaque module d'une collection est signale comme introuvable.
-export ANSIBLE_COLLECTIONS_PATH="$PWD/ansible/collections"
+# que ansible.cfg (et donc collections_path) vit dans ansible/. Sans cette
+# ligne, chaque module d'une collection est signale comme introuvable.
+#
+# Le chemin par defaut est conserve derriere : exporter la variable la
+# REMPLACE au lieu de s'y ajouter, et une installation faite par
+# `ansible-galaxy` sans -p atterrit dans ~/.ansible/collections, qui
+# deviendrait alors invisible.
+export ANSIBLE_COLLECTIONS_PATH="$PWD/ansible/collections:${HOME}/.ansible/collections"
 # Les controles ne dechiffrent rien, mais Ansible refuse un fichier de mot de
 # passe vide : on lui en fournit un factice.
 #
@@ -89,14 +94,22 @@ else
 fi
 
 # --- Aucun secret en clair --------------------------------------------------
-lance "aucun coffre en clair" bash -c '
-  trouve=0
-  for f in $(find ansible -name "coffre*.yml" -not -name "*.example"); do
-    if ! head -1 "$f" | grep -q "ANSIBLE_VAULT"; then
-      echo "  $f n${1}est pas chiffre" ; trouve=1
+#
+# Un coffre commite en clair est le genre d'accident qui ne se repare pas :
+# l'historique Git est immuable, et le secret y reste lisible.
+# shellcheck disable=SC2317  # appelee indirectement, via `lance`
+verifier_coffre() {
+  local trouve=0 fichier
+  while IFS= read -r fichier; do
+    if ! head -1 "$fichier" | grep -q 'ANSIBLE_VAULT'; then
+      echo "  $fichier n'est pas chiffre"
+      trouve=1
     fi
-  done
-  exit $trouve' --
+  done < <(find ansible -name 'coffre*.yml' -not -name '*.example')
+  return "$trouve"
+}
+
+lance "aucun coffre en clair" verifier_coffre
 
 printf '\n'
 [ "$echec" -eq 0 ] && printf '\033[32mTout est en ordre.\033[0m\n' || printf '\033[31mDes controles ont echoue.\033[0m\n'

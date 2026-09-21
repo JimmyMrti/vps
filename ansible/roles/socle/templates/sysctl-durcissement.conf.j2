@@ -50,6 +50,22 @@ net.ipv4.conf.all.arp_announce = 2
 # TIME-WAIT assassin : réduit l'occupation de la table sur un proxy chargé.
 net.ipv4.tcp_rfc1337 = 1
 
+# Un port publié sur 127.0.0.1 doit rester joignable depuis la seule machine.
+#
+# C'est la valeur par défaut du noyau, et elle est figée ici EXPRÈS. À 1, le
+# noyau accepte de router vers 127.0.0.0/8 des paquets arrivés par une
+# interface réseau : un service publié sur la boucle locale redevient
+# joignable depuis l'extérieur. Or n8n n'est publié que sur 127.0.0.1 et le
+# tunnel SSH est son unique chemin d'administration — tout le dispositif
+# reposerait alors sur rien.
+#
+# Le piège est qu'on est tenté de la passer à 1 : c'est le contournement qui
+# circule quand une publication sur la boucle locale ne répond pas. La vraie
+# cause est ailleurs — le relais Docker désactivé — et elle est traitée dans
+# le rôle docker, où `userland-proxy` est laissé actif pour cette raison.
+net.ipv4.conf.all.route_localnet = 0
+net.ipv4.conf.default.route_localnet = 0
+
 # =========================================================================
 # Réseau — IPv6
 # =========================================================================

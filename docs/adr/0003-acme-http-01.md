@@ -43,16 +43,43 @@ n'a pas d'objet puisque Jim a écarté les sous-domaines partagés : chaque
 service a son domaine, avec un ou deux noms. Et le port 80 doit rester ouvert
 de toute façon, pour la redirection vers HTTPS.
 
+## L'argument de la transparence des certificats
+
+Il a été soulevé et mérite d'être écrit, parce qu'il est juste.
+
+Tout certificat émis est publié en quelques minutes dans les journaux de
+transparence, qui sont publics et interrogeables. Si n8n reçoit un jour des
+webhooks entrants sous un nom volontairement difficile à deviner, ce nom sera
+donc **public dès l'émission de son certificat**. Le nom aléatoire protège du
+devinage, pas de la découverte.
+
+Seul un certificat générique le cacherait — puisque seul `*.exemple.fr`
+apparaîtrait dans les journaux — et un certificat générique exige DNS-01.
+
+**Cela ne change pas la décision**, pour deux raisons.
+
+D'abord, un nom d'hôte n'est pas un secret et ne doit pas en être un. Si la
+sécurité de n8n repose sur l'ignorance de son adresse, elle ne repose sur
+rien : c'est l'authentification et la restriction d'accès qui la portent.
+
+Ensuite, le coût reste le même : une image Caddy maison à maintenir, et une
+clé d'API OVH en écriture sur la zone posée sur le serveur. Échanger « un nom
+public » contre « un attaquant qui prend le serveur prend aussi les domaines »
+est un mauvais échange.
+
 ## Quand réexaminer
 
-Trois situations, et aucune n'existe aujourd'hui :
+Quatre situations, et aucune n'existe aujourd'hui :
 
 1. un service qui doit être joignable en HTTPS **sans** que le port 80 soit
    ouvert ;
 2. un besoin réel de certificat générique, par exemple un domaine avec des
    sous-domaines créés dynamiquement ;
 3. un domaine dont le DNS pointerait ailleurs que vers ce VPS pendant qu'on
-   veut malgré tout un certificat pour lui.
+   veut malgré tout un certificat pour lui ;
+4. une exigence explicite qu'un nom d'hôte n'apparaisse pas dans les journaux
+   de transparence — auquel cas il faut accepter le coût ci-dessus, et se
+   souvenir que cela ne dispense d'aucune autre protection.
 
 ## Conséquence opérationnelle
 

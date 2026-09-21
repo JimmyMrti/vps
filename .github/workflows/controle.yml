@@ -29,7 +29,11 @@ jobs:
           pip install ansible-core ansible-lint yamllint jinja2
 
       - name: Installer les collections Ansible
-        run: ansible-galaxy install -r ansible/requirements.yml
+        # -p ansible/collections : le meme chemin que celui declare dans
+        # ansible.cfg et attendu par scripts/verifier.sh. Sans -p, elles
+        # atterrissent dans ~/.ansible/collections et ansible-playbook ne les
+        # trouve pas depuis la racine du depot.
+        run: ansible-galaxy collection install -r ansible/requirements.yml -p ansible/collections
 
       - uses: hashicorp/setup-terraform@v3
         with:
