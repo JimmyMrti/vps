@@ -34,9 +34,23 @@ Pour que ce tunnel aboutisse, n8n publie son port **sur la boucle locale
 uniquement** : `127.0.0.1:5678:5678`. Ce n'est pas la même chose que publier un
 port — Docker n'installe la règle de redirection que pour `127.0.0.1`, donc
 rien n'est joignable depuis l'extérieur et le contournement d'UFW ne s'applique
-pas. Une condition à vérifier côté socle : `net.ipv4.conf.all.route_localnet`
-doit rester à **0**, sa valeur par défaut ; à 1, un port publié sur la boucle
-locale redevient joignable depuis le réseau.
+pas.
+
+Deux réglages du socle tiennent ce chemin d'accès, et ils vont ensemble :
+
+- **`net.ipv4.conf.all.route_localnet` à 0**, sa valeur par défaut, figée
+  explicitement. À 1, un port publié sur la boucle locale redevient joignable
+  depuis le réseau.
+- **le relais Docker en espace utilisateur laissé actif.** Le désactiver est le
+  réflexe habituel — il consomme de la mémoire et masque l'IP source — mais il
+  casse les publications sur la boucle locale, qui dépendraient alors de
+  `route_localnet`. Relais actif **et** `route_localnet` à 0, c'est exactement
+  la combinaison qui donne un port joignable depuis la machine seule.
+
+Et le socle limite le tunnel lui-même : `AllowTcpForwarding local` autorise un
+`-L` et refuse un `-R`, qui est la direction dangereuse, et `PermitOpen` ne
+laisse atteindre que `127.0.0.1:5678`. Les bases de données ne sont donc pas
+joignables par ce moyen.
 
 `edge/sites/n8n.caddy` est donc inactif tant que `N8N_DOMAIN` n'est pas
 renseigné : le nom par défaut est en `.localhost`, Caddy fabrique un certificat
@@ -142,22 +156,27 @@ publié dans les journaux de transparence, consultables par n'importe qui sur
 `crt.sh`, quelques minutes après l'émission. Un nom aléatoire y apparaît en
 clair comme un autre.
 
-**Sauf avec un certificat générique.** Un certificat `*.<domaine-infra>.tld`
+**Un certificat générique le cacherait.** Un certificat `*.<domaine-infra>.tld`
 obtenu par validation DNS-01 ne publie que l'étoile : l'étiquette aléatoire
-n'apparaît nulle part. C'est la seule manière de tenir vraiment l'intention
-d'un nom aléatoire.
+n'apparaît nulle part.
 
-Le prix à payer : Caddy ne sait faire DNS-01 chez OVH qu'avec un module
-supplémentaire, donc une image Caddy construite avec `xcaddy`. Construite **en
-intégration continue**, comme l'image du site, et simplement tirée par le VPS —
-ce qui reste exactement le modèle en place, sans chaîne de compilation sur la
-machine. Cela demande aussi une clé d'API OVH en écriture sur la zone DNS,
-stockée en 0600 sur le serveur.
+**Cette piste a été examinée puis écartée**, et c'est le bon arbitrage. Elle
+demande une image Caddy construite avec `xcaddy` — acceptable, elle serait
+construite en intégration continue comme l'image du site — mais surtout **une
+clé d'API OVH en écriture sur la zone DNS, posée sur le serveur**. Aujourd'hui,
+qui prend le serveur prend le serveur ; avec cette clé, il prend aussi les
+domaines, donc la possibilité de se faire émettre des certificats valides pour
+n'importe quel service. On échangerait une information publique contre un
+pouvoir supplémentaire donné à l'attaquant.
 
-C'est une décision du socle, puisqu'elle porte sur le frontal. Elle lui a été
-transmise. **En attendant, la validation HTTP-01 fonctionne** : le nom aléatoire
-est alors visible dans les journaux de certificats, et c'est la restriction
-d'accès qui fait le travail — ce qui est de toute façon le cas.
+Et sur le fond : si la sécurité de n8n reposait sur l'ignorance de son adresse,
+elle ne reposerait sur rien. Ce qui la porte, c'est l'absence d'exposition,
+puis l'authentification et la restriction d'accès. La décision et les
+situations qui la rouvriraient sont écrites dans `docs/adr/0003-acme-http-01.md`,
+côté socle.
+
+**La validation HTTP-01 est donc retenue** : le jour où un nom sera nécessaire,
+il sera visible dans les journaux de certificats, et c'est assumé.
 
 Ce qui ne marche pas, en revanche : compter sur la discrétion du nom. Elle
 n'est pas une mesure de sécurité ; la restriction d'accès en est une.

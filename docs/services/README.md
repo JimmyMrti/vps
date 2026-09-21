@@ -75,18 +75,25 @@ Ce que le schéma impose :
 
 ## Contrat avec le socle
 
-Ces fichiers supposent que le socle fournit :
+**Ce que le socle fournit**, et dont ces fichiers dépendent :
 
-| Élément | Attendu |
+| Élément | Où |
 |---|---|
-| Réseau Docker | un réseau externe `edge`, créé une fois : `docker network create edge` |
-| Arborescence | `/opt/vps/services/<nom>/` — `docker-compose.yml` en 0644 root:root, `.env` en 0600 root:root |
-| Secrets | des fichiers sous `/opt/vps/secrets/<nom>/`, 0600 root:root, jamais dans le compose |
-| Frontal | un Caddyfile contenant `import /etc/caddy/sites/*.caddy`, le dossier `sites/` monté en lecture seule depuis `edge/sites/` de ce dépôt |
-| Déploiement | le modèle « pull » déjà en place : aucun SSH entrant, un timer systemd tire l'image depuis `ghcr.io` avec un jeton `read:packages` |
+| le réseau Docker externe `edge` | rôle `docker` du socle |
+| le frontal Caddy, son `import /etc/caddy/sites/*.caddy`, l'extrait `tls_anssi` et le dossier `sites/` monté en lecture seule | rôle `proxy` |
+| `/var/log/caddy` monté depuis l'hôte | rôle `proxy` — l'extrait `journal_acces` y écrit, fail2ban le lit |
+| le jeton du registre, dans `/etc/docker/identifiants/config.json` | rôle `docker` — emplacement imposé par le durcissement systemd, qui masque `/home` et `/root` |
+| le tunnel SSH autorisé vers `127.0.0.1:5678` et rien d'autre | rôle `ssh` (`AllowTcpForwarding local` + `PermitOpen`) |
+| `net.ipv4.conf.all.route_localnet` à 0, relais Docker laissé actif | rôle `socle` — les deux vont ensemble : c'est ce qui rend le port de n8n joignable depuis la machine **seulement** |
+| le rôle `maj_service`, qui pose un `maj.sh`, un service et un timer | à appeler avec `maj_nom`, `maj_dossier`, `maj_image`, `maj_intervalle`, `maj_description` |
 
-Si le socle retient d'autres conventions, seuls les chemins changent : la
-répartition des réseaux et des droits, elle, est le cœur du sujet.
+**Ce que ces fichiers apportent eux-mêmes**, le socle ne l'imposant pas :
+
+| Élément | Convention retenue ici |
+|---|---|
+| Arborescence | `/opt/vps/services/<nom>/` — `docker-compose.yml` en 0644 root:root, `.env` en 0600 root:root. Le socle, lui, utilise `/opt/vps/frontal/` et `/opt/vps/site/`. |
+| Secrets | des fichiers sous `/opt/vps/secrets/<nom>/`, 0600 root:root, jamais dans le compose |
+| Mise à jour | voir plus bas : ni n8n ni l'annuaire ne peuvent rider le timer générique tel quel |
 
 ---
 
@@ -157,6 +164,10 @@ chmod 600 /opt/vps/secrets/sauvegarde/github.env
 systemctl enable --now sauvegarde.timer verification-sauvegarde.timer \
                        restauration-test.timer surveillance-disque.timer \
                        export-workflows-n8n.timer
+
+# 10. Pour l'annuaire seulement, la mise à jour automatique. Pas pour n8n :
+#     voir « Mises à jour » plus bas.
+systemctl enable --now maj-annuaire.timer
 ```
 
 L'étape 7 est celle qu'on oublie. Un n8n fraîchement démarré et joignable
@@ -171,3 +182,50 @@ Pour l'annuaire, l'ordre est le même, avec la migration de schéma intercalée 
 docker compose --profile migration run --rm migration
 docker compose up -d
 ```
+
+---
+
+## Mises à jour : pourquoi les deux services ne suivent pas la même règle
+
+Le socle fournit un rôle `maj_service` qui pose, pour un service donné, un
+script de mise à jour, une unité systemd et un minuteur : le serveur va
+chercher sa nouvelle image, personne ne pousse vers lui. C'est le modèle en
+place pour le site statique, et il est bon.
+
+**Ni n8n ni l'annuaire ne peuvent l'utiliser tel quel**, pour deux raisons
+différentes.
+
+### n8n : jamais de mise à jour automatique
+
+Une montée de version majeure de n8n **migre sa base au démarrage**, et cette
+migration ne se défait pas. Un minuteur qui tire `latest` transformerait une
+publication amont en modification irréversible de vos données, une nuit, sans
+que personne l'ait décidé.
+
+D'où l'image fixée à une version explicite dans `.env`. La mise à jour est un
+geste conscient :
+
+```bash
+# 1. Sauvegarder d'abord — c'est le moment où ça compte le plus.
+systemctl start sauvegarde.service
+
+# 2. Lire les notes de version, en particulier les changements de rupture.
+# 3. Relever N8N_IMAGE dans /opt/vps/services/n8n/.env
+# 4. Appliquer.
+docker compose -f /opt/vps/services/n8n/docker-compose.yml up -d
+```
+
+Le retour arrière n'est pas garanti : si la migration a modifié le schéma,
+redescendre de version demande de restaurer la base. C'est précisément
+pourquoi l'étape 1 n'est pas facultative.
+
+### L'annuaire : mise à jour automatique, mais avec les migrations
+
+L'annuaire est notre code, publié en continu : le modèle « pull » lui va. Mais
+le script générique du socle fait `pull` puis `up -d`, sans jouer les
+migrations de schéma — il démarrerait donc une version du code sur une base
+restée en arrière.
+
+D'où [`services/annuaire/maj.sh`](../../services/annuaire/maj.sh), qui fait la
+même chose dans le bon ordre : tirer l'image, jouer les migrations, puis
+seulement redémarrer. Et qui ne fait rien du tout si l'image n'a pas changé.
