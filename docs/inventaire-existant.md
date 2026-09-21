@@ -114,8 +114,14 @@ grille de veille hors ligne + `docker compose config --quiet`.
 
 - **Domaine :** `preventioncambriolage.fr`. Deux enregistrements attendus :
   `A @` vers l'IPv4 du VPS, `AAAA @` vers l'IPv6 si elle existe.
-- **`www` n'est pas servi.** Le bloc `www.{$DOMAIN}` du `Caddyfile` est en
-  commentaire, à décommenter si l'enregistrement DNS est créé.
+- **`www` résout, mais n'est pas servi. C'est un défaut en production.**
+  Vérifié le 21 septembre 2026 : `www.preventioncambriolage.fr` répond en
+  `92.222.91.185` et `2001:41d0:404:200::5baf`, exactement comme le domaine nu.
+  Or le bloc `www.{$DOMAIN}` du `Caddyfile` est en commentaire. Caddy n'a donc
+  aucun certificat pour ce nom et aucun site à lui servir : un visiteur qui tape
+  `www.` obtient un avertissement de sécurité du navigateur, pas une
+  redirection. Décommenter ce bloc est un correctif d'une ligne.
+  Au passage, la machine a bien une IPv6.
 - **Certificats :** Caddy, ACME **HTTP-01**, donc le **port 80 doit rester
   ouvert en permanence** — il ne sert pas qu'à rediriger, il porte aussi chaque
   renouvellement. Renouvellement automatique à 30 jours de l'expiration,
@@ -396,8 +402,59 @@ inconvénients, et il rend le DNS-01 possible puisque la zone serait la nôtre.
 exposé ? Un serveur d'automatisation détient les jetons d'accès à tout ce qu'il
 pilote — c'est la cible la plus intéressante de la machine. Son interface peut
 n'être joignable que par un tunnel (WireGuard, ou un simple tunnel SSH), et seuls
-les points d'entrée de webhooks, s'il en faut, restent publics. Le nom de domaine
-ne sert alors plus qu'aux webhooks. À instruire dans le fil n8n.
+les points d'entrée de webhooks, s'il en faut, restent publics.
+
+### Séparer les webhooks de l'interface n8n
+
+C'est faisable, et de deux manières. Relevé dans la documentation de n8n le
+21 septembre 2026.
+
+**La voie simple : le proxy trie les chemins.** n8n sert tout depuis le même
+port, mais chaque famille d'URL a son préfixe, et ces préfixes sont des réglages
+documentés :
+
+| Réglage | Valeur par défaut | Ce qu'il sert |
+|---|---|---|
+| `N8N_ENDPOINT_WEBHOOK` | `webhook` | les webhooks de production |
+| `N8N_ENDPOINT_WEBHOOK_WAIT` | `webhook-waiting` | les reprises de workflows en attente |
+| `N8N_ENDPOINT_WEBHOOK_TEST` | `webhook-test` | les webhooks d'essai — **à ne pas exposer** |
+| `N8N_ENDPOINT_REST` | `rest` | l'API interne de l'éditeur |
+| `N8N_ENDPOINT_HEALTH` | `healthz` | la sonde de santé |
+
+Le domaine public ne laisse donc passer que `/webhook/*` et
+`/webhook-waiting/*`, et répond 404 à tout le reste. L'éditeur, son API `rest`
+et ses fichiers statiques ne sont joignables que par le tunnel.
+
+**La règle doit être écrite en liste blanche**, pas en liste noire : on autorise
+deux préfixes et on refuse le reste. Une liste noire oublie toujours un chemin,
+et l'oubli ici expose l'éditeur.
+
+`N8N_WEBHOOK_URL` (ou `WEBHOOK_URL`) fixe l'adresse publique que n8n inscrit
+dans les URL qu'il distribue aux services tiers : sans lui, il annoncerait
+l'adresse privée.
+
+*Un point à vérifier au moment de l'implémentation :* les déclencheurs de type
+formulaire servent sur leur propre chemin, qui ne figure pas dans le tableau
+ci-dessus. Si le projet en utilise, il faudra l'ajouter à la liste blanche.
+
+**La voie propre : un processus dédié.** En mode file d'attente, n8n sait
+démarrer un processus qui ne sert *que* les webhooks — la commande est
+`n8n webhook`. La documentation est explicite : ce processus ne sert ni
+l'interface, ni l'API interne, ni les fichiers statiques de l'éditeur, qui
+doivent être routés vers le processus principal. La séparation n'est plus une
+règle de proxy mais deux conteneurs distincts, dont un seul est exposé — et une
+erreur de configuration du proxy ne peut plus découvrir l'éditeur.
+
+Le prix : le mode file d'attente réclame une base de données **et** Redis, plus
+un processus principal et au moins un worker. Quatre conteneurs au lieu d'un,
+pour un usage qui n'a pas de problème de volumétrie. Le réglage
+`N8N_DISABLE_PRODUCTION_MAIN_PROCESS` existe pour que le processus principal
+cesse alors de servir les webhooks lui-même.
+
+**Recommandation : commencer par la voie simple**, liste blanche sur deux
+préfixes et éditeur derrière le tunnel. Elle donne la même surface d'exposition
+publique pour un conteneur au lieu de quatre. Le mode file d'attente se
+justifiera si le volume de webhooks l'impose. À instruire dans le fil n8n.
 
 ### Sauvegarde : GitHub au maximum, un roulement pour le reste
 
@@ -441,16 +498,81 @@ marché.
 
 ---
 
-## 9 ter. Ce qui reste à décider
+## 9 ter. L'annuaire artisans contiendra des données personnelles
 
-1. **État réel de la production** : `PUBLIC_INDEXABLE` est-il à `1` ? Le `www`
-   est-il déclaré au DNS ? Y a-t-il déjà quelque chose d'installé sur le VPS en
-   dehors de cette pile ?
-2. **Nature de l'annuaire artisans** : volumétrie attendue, technologie, base de
-   données souhaitée, et données à caractère personnel d'artisans — donc RGPD,
-   donc durée de conservation.
-3. **n8n exposé ou non**, et besoin d'un SMTP. Conditionne la réponse sur le nom
-   de domaine.
+Confirmé par Jim le 21 septembre 2026 : l'annuaire contiendra des **données à
+caractère personnel**, et toute information récupérable en source ouverte.
+
+Ce n'est pas un détail de conformité à traiter à la fin. C'est une contrainte
+d'architecture, parce que trois obligations se traduisent directement en code et
+en infrastructure.
+
+**Public ne veut pas dire librement réutilisable.** La CNIL est explicite :
+des données publiquement accessibles restent des données personnelles, elles
+« ne sont pas librement réutilisables par tout responsable de traitement », et
+elles ne peuvent pas être exploitées à l'insu de la personne concernée. Il faut
+une base légale — l'intérêt légitime, vraisemblablement, et il se documente. La
+CNIL ajoute qu'il faut vérifier que les conditions d'utilisation des sites
+moissonnés n'interdisent pas la collecte.
+
+Deux précisions de périmètre. Un artisan en nom propre — entreprise
+individuelle, micro-entrepreneur — est une personne physique : son nom, son
+adresse et son téléphone professionnel sont des données personnelles. Et les
+registres publics d'entreprises comportent un statut de diffusion : certains
+entrepreneurs individuels se sont opposés à la diffusion de leurs informations.
+*À vérifier à la source avant toute collecte*, car republier ces
+enregistrements-là serait une faute nette.
+
+### Ce que ça impose au code et à l'infra
+
+1. **L'information des personnes (article 14 du RGPD).** Les données n'étant pas
+   collectées auprès de l'artisan, il faut l'informer, et la CNIL précise : au
+   plus tard au moment de la première communication, en indiquant la source. Une
+   page d'information accessible ne suffit pas toujours, et c'est l'obligation
+   la plus lourde d'un annuaire constitué par moisson.
+2. **La provenance de chaque donnée doit être stockée.** On ne peut pas indiquer
+   la source si le schéma ne la porte pas. C'est une colonne par enregistrement,
+   pas une note en bas de page — décision à prendre dès la conception du schéma,
+   très coûteuse à rattraper ensuite.
+3. **L'effacement doit être réellement possible**, de bout en bout : base,
+   caches, index de recherche, exports, **et sauvegardes**. D'où une rétention
+   bornée sur les sauvegardes — un roulement qui finit par oublier, ce qui est
+   exactement le roulement demandé — et la confirmation de ce qui a été écrit
+   plus haut : ces données ne vont pas sur GitHub, dont l'historique est
+   immuable.
+4. **Un canal d'opposition** et de rectification, avec quelqu'un pour le relever.
+   Un annuaire sans adresse de contact fonctionnelle n'est pas tenable.
+
+Ces éléments relèvent de la conception de l'annuaire, pas de l'inventaire. Ils
+sont consignés ici parce qu'ils décident de choses que l'infrastructure doit
+prévoir dès le départ : un schéma qui porte la provenance, une rétention bornée,
+et une chaîne d'effacement qui va jusqu'aux sauvegardes.
+
+> Ce qui précède relève les obligations visibles depuis la documentation de la
+> CNIL. Ce n'est pas un avis juridique, et la doctrine de la CNIL sur la
+> réutilisation des données publiquement accessibles mérite d'être relue
+> directement avant la mise en ligne.
+
+---
+
+## 9 quater. Ce qui reste à décider
+
+1. **Y a-t-il déjà quelque chose d'installé sur le VPS en dehors de cette
+   pile ?** Un autre proxy, un panneau d'administration, un service laissé d'un
+   essai précédent. C'est la seule question qui reste vraiment ouverte sur la
+   production, et elle décide si le fil socle peut partir d'une machine propre
+   ou doit d'abord l'inventorier.
+2. **Technologie et volumétrie de l'annuaire**, qui décident du dimensionnement
+   de sa base et de la forme des sauvegardes.
+3. **n8n : quelle voie de séparation** (liste blanche sur le proxy, ou processus
+   webhook dédié en mode file d'attente) et **quel tunnel** pour l'éditeur.
+
+Deux points antérieurement listés sont désormais tranchés ou résolus :
+`PUBLIC_INDEXABLE` n'est pas réellement une question — le workflow de
+construction retient `1` par défaut lorsque la variable n'est pas définie, donc
+le site est ouvert à l'indexation sauf si quelqu'un l'a explicitement mise à
+`0` — et le `www` est bien déclaré au DNS, ce qui en fait un défaut à corriger
+plutôt qu'une question (voir §4).
 
 
 ## 10. Fichiers de référence dans le dépôt d'origine
