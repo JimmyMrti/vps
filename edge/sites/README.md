@@ -25,7 +25,7 @@ Caddy — c'est la pile du frontal, côté socle, qui doit les fournir.
 | Variable | Rôle | Si vide |
 |---|---|---|
 | `SITE_DOMAIN` | preventioncambriolage.fr | `preventioncambriolage.fr` |
-| `N8N_DOMAIN` | domaine de n8n (`auto.preventioncambriolage.fr`) | `n8n.localhost`, donc inactif publiquement |
+| `N8N_DOMAIN` | domaine de n8n, étiquette aléatoire sous le domaine d'infrastructure | `n8n.localhost`, donc inactif publiquement |
 | `N8N_IP_ADMIN` | adresses autorisées sur l'interface n8n | `192.0.2.1`, adresse de documentation : personne n'entre |
 | `ANNUAIRE_DOMAIN` | domaine de l'annuaire | `annuaire.localhost`, donc inactif |
 | `ANNUAIRE_IP_PRIVE` | adresses autorisées avant l'ouverture publique, si le bloc dédié est décommenté | `192.0.2.1` |

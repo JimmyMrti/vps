@@ -9,7 +9,56 @@ Tout ce qui suit découle de ce constat.
 
 ---
 
+## Faut-il seulement exposer n8n ?
+
+La question vient avant celle du nom de domaine, et la réponse par défaut est
+**non**.
+
+n8n détiendra les jetons d'accès de tout ce qu'il pilote. Exposer publiquement
+le service qui détient toutes les clés demande une justification, pas une
+habitude. Or l'exposition ne sert qu'à **une** chose : recevoir des appels
+entrants — webhooks et formulaires. Tout le reste de n8n fonctionne sans être
+joignable depuis Internet : les déclencheurs programmés, les relevés
+périodiques, les appels sortants vers des API.
+
+**Décision : n8n démarre sans aucune exposition publique.** Pas de domaine, pas
+de certificat, pas d'entrée dans les journaux de transparence, aucune surface.
+L'accès se fait par tunnel SSH :
+
+```bash
+ssh -L 5678:localhost:5678 ubuntu@VPS
+# puis http://localhost:5678 dans le navigateur
+```
+
+Pour que ce tunnel aboutisse, n8n publie son port **sur la boucle locale
+uniquement** : `127.0.0.1:5678:5678`. Ce n'est pas la même chose que publier un
+port — Docker n'installe la règle de redirection que pour `127.0.0.1`, donc
+rien n'est joignable depuis l'extérieur et le contournement d'UFW ne s'applique
+pas. Une condition à vérifier côté socle : `net.ipv4.conf.all.route_localnet`
+doit rester à **0**, sa valeur par défaut ; à 1, un port publié sur la boucle
+locale redevient joignable depuis le réseau.
+
+`edge/sites/n8n.caddy` est donc inactif tant que `N8N_DOMAIN` n'est pas
+renseigné : le nom par défaut est en `.localhost`, Caddy fabrique un certificat
+interne et ne demande rien à Let's Encrypt.
+
+**Le jour où un workflow a besoin d'un appel entrant**, on renseigne
+`N8N_DOMAIN` et l'exposition s'active — avec les seuls chemins de webhook
+publics, tout le reste restant fermé. Le fichier est déjà écrit pour cela.
+
+Ce que coûte ce choix, honnêtement : certaines intégrations n'ont d'autre
+option que le webhook, et d'autres deviennent des relevés périodiques — plus
+lents, et consommateurs de quota d'API. C'est un coût réel, mais il se paie au
+cas par cas, quand un besoin précis se présente, au lieu d'ouvrir d'emblée une
+porte dont personne ne se sert.
+
+---
+
 ## Exposition : deux portes, pas une
+
+**Cette section décrit ce qui se passe quand l'exposition est activée**, donc
+le jour où un webhook entrant devient nécessaire. Par défaut, rien de tout cela
+n'est en service.
 
 Un n8n exposé, c'est en réalité deux applications derrière la même adresse :
 
@@ -38,7 +87,7 @@ résidentielle — deux options, dans cet ordre de préférence :
 1. autoriser le préfixe du fournisseur d'accès, plus large mais toujours mille
    fois plus étroit qu'Internet ;
 2. autoriser uniquement le réseau du VPS et passer par un tunnel SSH :
-   `ssh -L 5678:n8n:5678 ubuntu@VPS` puis `http://localhost:5678`. Le port
+   `ssh -L 5678:localhost:5678 ubuntu@VPS` puis `http://localhost:5678`. Le port
    n'est alors jamais exposé. C'est la solution la plus propre, au prix d'une
    commande à taper.
 
@@ -50,38 +99,68 @@ ouvrir.
 
 ## Le domaine
 
-**Recommandation : un domaine distinct, acheté pour l'usage technique.**
-Repli utilisable dès aujourd'hui, sans rien acheter :
-`auto.preventioncambriolage.fr`.
+Le domaine ne sert qu'aux webhooks, et seulement une fois l'exposition
+activée. Quand ce jour vient : **un domaine distinct, dédié à
+l'infrastructure, et un nom aléatoire dessous.** Aucun sous-domaine de
+`preventioncambriolage.fr` : les sites restent séparés.
 
-Trois raisons, dont deux ne sautent pas aux yeux.
+Le nom du VPS a été envisagé — `vpsXXXXXX.vps.ovh.net`, que OVH crée d'office
+et qui pointe déjà sur la machine. **Il ne convient pas**, pour une raison
+vérifiable et une autre de fond.
 
-**Un sous-domaine annonce publiquement ce qui tourne derrière la marque.** Tout
-certificat Let's Encrypt est publié dans les journaux de transparence,
-consultables par n'importe qui sur `crt.sh`. Chercher les sous-domaines
-commençant par `n8n.` y est un geste d'énumération courant : c'est la liste
-toute faite des cibles d'une faille n8n publiée le matin même. Un nom neutre
-comme `auto.` retire de cette liste, mais ne masque pas l'association entre le
-site éditorial et son outillage.
+**La raison vérifiable.** Let's Encrypt compte ses quotas par « domaine
+enregistré », déterminé à l'aide de la *Public Suffix List*. Or cette liste ne
+contient que `*.hosting.ovh.net` et `*.webpaas.ovh.net` — ni `vps.ovh.net`, ni
+`ovh.net` (vérifié sur la liste publiée). Le domaine enregistré de
+`vpsXXXXXX.vps.ovh.net` est donc `ovh.net`, et **tous les VPS OVH du monde
+partagent alors le même quota** de 50 certificats par semaine. Il est
+durablement épuisé. La demande de certificat échouerait sur
+« too many certificates already issued ».
 
-**L'anonymat de l'éditeur est un choix assumé dans les mentions légales du
-site.** Chaque sous-domaine ajouté est une information publique de plus sur son
-infrastructure. Un domaine séparé casse le lien.
+**La raison de fond.** Ce nom appartient à l'inventaire du fournisseur : il
+change si la machine est remplacée, et il annonce l'hébergeur. Une adresse de
+service ne doit pas dépendre du matériel qui la sert.
 
-**HSTS avec `includeSubDomains` est déjà servi** par le site en production.
-Conséquence concrète : tout sous-domaine de `preventioncambriolage.fr` doit
-être en HTTPS valide **dès la première requête d'un navigateur qui a visité le
-site**, essais compris. Ce n'est pas bloquant — Caddy obtient le certificat
-seul — mais cela interdit le bricolage en HTTP le temps de mettre au point, et
-une erreur de certificat sur un sous-domaine devient un mur, pas un
-avertissement qu'on clique.
+### Ce qui est retenu
 
-La variable `N8N_DOMAIN` est le seul endroit à changer pour basculer de l'un à
-l'autre. Le repli est là pour ne rien bloquer, pas pour rester.
+Un domaine bon marché dédié à l'infrastructure — en `.ovh` ou en `.fr`, le DNS
+étant déjà géré chez OVH — et n8n sur une étiquette aléatoire :
 
-Ce qui ne marche pas, en revanche : croire qu'un sous-domaine non publié reste
-secret. La discrétion n'est pas une mesure de sécurité ; la restriction d'accès
-en est une, et c'est elle qui fait le travail ici.
+```
+k7m2x9qp.<domaine-infra>.tld
+```
+
+L'étiquette se tire une fois : `openssl rand -hex 4`.
+
+### Ce qu'un nom aléatoire protège, et ce qu'il ne protège pas
+
+Il protège du **devinage** : personne ne trouvera `k7m2x9qp` dans une liste de
+sous-domaines courants.
+
+Il ne protège pas de la **découverte**. Tout certificat Let's Encrypt est
+publié dans les journaux de transparence, consultables par n'importe qui sur
+`crt.sh`, quelques minutes après l'émission. Un nom aléatoire y apparaît en
+clair comme un autre.
+
+**Sauf avec un certificat générique.** Un certificat `*.<domaine-infra>.tld`
+obtenu par validation DNS-01 ne publie que l'étoile : l'étiquette aléatoire
+n'apparaît nulle part. C'est la seule manière de tenir vraiment l'intention
+d'un nom aléatoire.
+
+Le prix à payer : Caddy ne sait faire DNS-01 chez OVH qu'avec un module
+supplémentaire, donc une image Caddy construite avec `xcaddy`. Construite **en
+intégration continue**, comme l'image du site, et simplement tirée par le VPS —
+ce qui reste exactement le modèle en place, sans chaîne de compilation sur la
+machine. Cela demande aussi une clé d'API OVH en écriture sur la zone DNS,
+stockée en 0600 sur le serveur.
+
+C'est une décision du socle, puisqu'elle porte sur le frontal. Elle lui a été
+transmise. **En attendant, la validation HTTP-01 fonctionne** : le nom aléatoire
+est alors visible dans les journaux de certificats, et c'est la restriction
+d'accès qui fait le travail — ce qui est de toute façon le cas.
+
+Ce qui ne marche pas, en revanche : compter sur la discrétion du nom. Elle
+n'est pas une mesure de sécurité ; la restriction d'accès en est une.
 
 Enregistrement DNS à créer chez OVH avant le premier démarrage de Caddy : un
 `A` vers l'IPv4 du VPS, et un `AAAA` vers l'IPv6 s'il y en a une. Un DNS qui ne

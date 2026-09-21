@@ -94,15 +94,17 @@ Le détail des obligations est dans
 
 ## Domaine
 
-**Recommandation : un domaine propre, pas un sous-domaine de
-`preventioncambriolage.fr`.**
+**Un domaine propre. Aucun sous-domaine de `preventioncambriolage.fr` :
+chaque site reste séparé.**
 
-Contrairement à n8n, l'annuaire est un site public destiné à être indexé, et
-c'est ce qui change la réponse. Un sous-domaine lie les deux réputations : une
-sanction de référencement sur l'un rejaillit sur l'autre, et l'annuaire ne peut
-plus être cédé ni hébergé ailleurs sans changer d'adresse — donc sans repartir
-de zéro côté référencement. Une dizaine d'euros par an évite les deux, et le
-DNS est déjà géré chez OVH.
+Les raisons vont dans le même sens que la décision. Un sous-domaine lie les
+deux réputations : une sanction de référencement sur l'un rejaillit sur
+l'autre, et l'annuaire ne peut plus être cédé ni hébergé ailleurs sans changer
+d'adresse — donc sans repartir de zéro côté référencement. Une dizaine d'euros
+par an évite les deux, et le DNS est déjà géré chez OVH.
+
+Contrairement à n8n, le nom n'a aucune raison d'être aléatoire : c'est un site
+public destiné à être trouvé.
 
 Le nom n'est pas un détail technique : c'est le premier actif du site. Trois
 directions, par ordre de préférence, à vérifier disponibles chez OVH :

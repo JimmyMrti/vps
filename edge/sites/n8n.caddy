@@ -27,7 +27,7 @@
 	# fermée à tout le monde. On y accède alors par un tunnel SSH, ce qui est
 	# la configuration la plus sûre :
 	#
-	#   ssh -L 5678:n8n:5678 ubuntu@VPS   puis   http://localhost:5678
+	#   ssh -L 5678:localhost:5678 ubuntu@VPS   puis   http://localhost:5678
 	handle {
 		@hors_liste not remote_ip {$N8N_IP_ADMIN:192.0.2.1}
 		# 404 plutôt que 403 : inutile de confirmer à un inconnu qu'il y a

@@ -7,7 +7,7 @@ ce dépôt.
 | Service | Rôle | Domaine | État |
 |---|---|---|---|
 | `site` | preventioncambriolage.fr, pages statiques | `preventioncambriolage.fr` | en production |
-| `n8n` | automatisation, webhooks entrants | domaine distinct recommandé, repli `auto.preventioncambriolage.fr` | à installer |
+| `n8n` | automatisation | **aucun — non exposé, accès par tunnel SSH** | à installer |
 | `annuaire` | annuaire artisans enrichi | domaine propre, à choisir | à écrire |
 
 | Document | Contenu |
@@ -32,20 +32,23 @@ que si on l'a écrit quelque part.**
               ┌──────┴──────┐        seul conteneur qui publie 80/443
               │    Caddy    │
               └──────┬──────┘
-          réseau ────┼──────────────────────────┐  (edge)
-                     │                          │
-        ┌────────────┼────────────┐             │
-        │            │            │             │
-   ┌────┴────┐  ┌────┴────┐  ┌────┴─────┐       │
-   │  site   │  │   n8n   │  │ annuaire │       │
-   └─────────┘  └────┬────┘  └────┬─────┘       │
-                     │            │
-          réseau ────┤            ├──── réseau  │  (n8n_interne / annuaire_interne)
-                     │            │                interne: true
-              ┌──────┴───┐  ┌─────┴──────┐
-              │ postgres │  │  postgres  │
-              │   n8n    │  │  annuaire  │
-              └──────────┘  └────────────┘
+          réseau ────┼───────────┐  (edge)
+                     │           │
+             ┌───────┴──┐   ┌────┴─────┐          ┌─────────┐
+             │   site   │   │ annuaire │          │   n8n   │──→ Internet
+             └──────────┘   └────┬─────┘          └────┬────┘   (sortant seul,
+                                 │                     │         réseau à lui)
+                      réseau ────┤          réseau ────┤
+                                 │                     │
+                          ┌──────┴─────┐        ┌──────┴───┐
+                          │  postgres  │        │ postgres │
+                          │  annuaire  │        │   n8n    │
+                          └────────────┘        └──────────┘
+                           (internal: true)      (internal: true)
+
+    n8n n'est raccordé à aucun réseau partagé : il ne peut joindre ni le
+    site, ni l'annuaire, ni leurs bases. L'accès à son interface passe par
+    un tunnel SSH, son port n'étant publié que sur 127.0.0.1.
 ```
 
 Ce que le schéma impose :
@@ -60,9 +63,13 @@ Ce que le schéma impose :
   Deux instances PostgreSQL coûtent environ 150 Mo de plus que deux bases dans
   une seule instance — c'est le prix d'un cloisonnement qui tient même si
   quelqu'un obtient le rôle superutilisateur d'un côté.
-- **n8n est le seul service qui a une bonne raison d'appeler l'extérieur.**
-  C'est aussi celui qui exécute du code fourni par l'utilisateur. Il est donc
-  traité comme le maillon le plus exposé, voir [`n8n.md`](n8n.md).
+- **n8n n'est pas exposé du tout.** Il détient les jetons d'accès de tout ce
+  qu'il pilote ; l'exposer ne servirait qu'à recevoir des appels entrants, ce
+  dont aucun workflow n'a besoin pour l'instant. L'accès à son interface passe
+  par un tunnel SSH. Voir [`n8n.md`](n8n.md).
+- **n8n reste le seul service qui a une bonne raison d'appeler l'extérieur**,
+  et celui qui exécute du code fourni par l'utilisateur : il est traité comme
+  le maillon le plus fragile de la chaîne, même sans surface publique.
 
 ---
 
@@ -137,10 +144,19 @@ docker compose -f /opt/vps/services/n8n/docker-compose.yml up -d
 #    authentification immédiatement : entre le démarrage et cette étape,
 #    n'importe qui atteignant l'interface peut créer ce compte.
 
-# 8. Les sauvegardes, avant de saisir quoi que ce soit qu'on regretterait de
+# 8. Le dépôt privé des workflows, et le jeton qui l'alimente. Jeton GitHub à
+#    portée fine : écriture sur ce seul dépôt, aucun droit ailleurs — surtout
+#    pas sur le dépôt d'infrastructure, dont dépend la reconstruction.
+git clone <dépôt privé des workflows> /var/sauvegardes/workflows-n8n
+printf 'GIT_ASKPASS=\nGITHUB_TOKEN=...\n' \
+  > /opt/vps/secrets/sauvegarde/github.env
+chmod 600 /opt/vps/secrets/sauvegarde/github.env
+
+# 9. Les sauvegardes, avant de saisir quoi que ce soit qu'on regretterait de
 #    perdre.
 systemctl enable --now sauvegarde.timer verification-sauvegarde.timer \
-                       restauration-test.timer surveillance-disque.timer
+                       restauration-test.timer surveillance-disque.timer \
+                       export-workflows-n8n.timer
 ```
 
 L'étape 7 est celle qu'on oublie. Un n8n fraîchement démarré et joignable

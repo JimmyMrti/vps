@@ -1,0 +1,11 @@
+[Unit]
+Description=Exporte les workflows n8n chaque nuit
+
+[Timer]
+OnCalendar=*-*-* 01:30:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=export-workflows-n8n.service
+
+[Install]
+WantedBy=timers.target

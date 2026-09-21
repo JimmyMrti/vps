@@ -41,20 +41,16 @@ services:
       DB_POSTGRESDB_USER: n8n
       DB_POSTGRESDB_PASSWORD_FILE: /run/secrets/mdp_postgres
 
-      # --- Adressage public ---
-      # n8n construit les URL de webhook à partir de ces valeurs. Une erreur
-      # ici donne des webhooks qui pointent vers localhost et que personne ne
-      # peut appeler.
-      N8N_HOST: ${N8N_DOMAIN:?N8N_DOMAIN est requis}
+      # --- Adressage ---
+      # Les valeurs viennent de .env, où les deux cas — exposé ou non — sont
+      # écrits côte à côte. Voir services/n8n/.env.example.
+      N8N_HOST: ${N8N_DOMAIN:-localhost}
       N8N_PORT: 5678
-      N8N_PROTOCOL: https
-      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN}
-      WEBHOOK_URL: https://${N8N_DOMAIN}/
-      # Un seul proxy devant n8n (Caddy). Sans ce réglage, n8n attribue toutes
-      # les requêtes à l'adresse de Caddy : limitation de débit inopérante et
-      # journaux sans valeur.
-      N8N_PROXY_HOPS: 1
-      N8N_SECURE_COOKIE: "true"
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_EDITOR_BASE_URL: ${N8N_URL_PUBLIQUE:-http://localhost:5678}
+      WEBHOOK_URL: ${N8N_URL_PUBLIQUE:-http://localhost:5678}/
+      N8N_SECURE_COOKIE: ${N8N_COOKIE_SECURISE:-false}
+      N8N_PROXY_HOPS: ${N8N_SAUTS_PROXY:-0}
 
       # --- Ce qu'on interdit ---
       # Plus aucune commande shell exécutable depuis un workflow.
@@ -102,15 +98,37 @@ services:
     secrets:
       - mdp_postgres
 
+    # Le seul port publié de toute la pile, et il l'est sur la boucle locale.
+    #
+    # Ce n'est pas la même chose que publier un port : Docker n'installe la
+    # règle de redirection que pour 127.0.0.1, donc rien n'est joignable depuis
+    # l'extérieur et le contournement d'UFW ne s'applique pas. C'est ce qui
+    # permet le tunnel SSH, seul chemin d'accès à l'interface tant que n8n
+    # n'est pas exposé :
+    #
+    #   ssh -L 5678:localhost:5678 ubuntu@VPS   puis   http://localhost:5678
+    #
+    # Condition à vérifier côté socle : net.ipv4.conf.all.route_localnet doit
+    # rester à 0, sa valeur par défaut. À 1, un port publié sur 127.0.0.1
+    # redevient joignable depuis le réseau.
+    ports:
+      - "127.0.0.1:5678:5678"
+
     volumes:
       - n8n_donnees:/home/node/.n8n
       - n8n_fichiers:/data/fichiers
 
     networks:
-      # Joignable par Caddy.
-      - edge
       # Joint sa base. Ce réseau n'a pas de route vers Internet.
       - n8n_interne
+      # Sort vers Internet pour appeler les API que les workflows pilotent.
+      # Réseau à lui seul : n8n ne peut donc joindre aucun autre service de la
+      # machine, en particulier pas l'annuaire ni sa base.
+      - n8n_sortie
+      # Joignable par Caddy — À DÉCOMMENTER le jour où un webhook entrant
+      # devient nécessaire, en même temps que l'adressage dans .env. Tant que
+      # cette ligne est commentée, n8n n'a aucune surface publique.
+      # - edge
 
     depends_on:
       n8n-db:
@@ -206,8 +224,13 @@ volumes:
   n8n_db:
 
 networks:
-  edge:
-    external: true
+  # Réseau du frontal — À DÉCOMMENTER avec la ligne `- edge` du service, le
+  # jour de l'exposition. Laissé commenté pour que la pile démarre même si le
+  # socle n'a pas encore créé ce réseau.
+  # edge:
+  #   external: true
   n8n_interne:
     # Pas de passerelle : les conteneurs de ce réseau ne joignent pas Internet.
     internal: true
+  n8n_sortie:
+    driver: bridge
