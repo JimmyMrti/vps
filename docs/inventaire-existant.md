@@ -329,9 +329,10 @@ plutôt que de se rabattre sur le paquet d'Ubuntu, qui est en retard.
 
 ### Les noms de domaine
 
-**Rien n'est arrêté** pour n8n ni pour l'annuaire : page blanche, aucune
-contrainte hors la sécurité et le site déjà en place. Deux éléments relevés dans
-l'existant pèsent quand même sur le choix.
+Jim a tranché : **aucun sous-domaine de `preventioncambriolage.fr`**, chaque
+service sur son propre domaine (voir §9 bis). Les deux éléments ci-dessous sont
+ce qui a conduit à cette décision ; ils sont conservés parce qu'ils expliquent
+pourquoi elle est la bonne.
 
 **L'en-tête HSTS actuel porte `includeSubDomains; preload`.** Tout sous-domaine
 de `preventioncambriolage.fr` devra donc être servi en HTTPS, sans exception et
@@ -353,19 +354,103 @@ besoins de CSP et de cookies, un domaine séparé se défend de toute façon.
 
 ---
 
-## 9 bis. Ce qui reste à décider
+## 9 bis. Décisions prises
+
+Prises par Jim le 21 septembre 2026.
+
+### Chaque service sur son propre domaine
+
+**Aucun sous-domaine de `preventioncambriolage.fr`.** Les trois services sont
+séparés, domaine compris.
+
+C'est la décision la plus structurante du lot, et elle simplifie beaucoup de
+choses : plus de question de HSTS hérité, des cookies qui ne peuvent pas fuir
+d'un service à l'autre, une politique de sécurité de contenu par site sans
+compromis, et rien qui relie publiquement l'outillage au site éditorial. Chaque
+domaine devient un bloc indépendant dans la configuration de Caddy.
+
+### n8n : le nom du VPS ne peut pas porter de certificat
+
+L'idée d'utiliser le nom par défaut de la machine (`vpsXXXXXX.vps.ovh.net`)
+donne bien l'effet recherché — un nom quelconque, sans lien avec le site — mais
+elle bute sur trois obstacles, dont le premier est rédhibitoire.
+
+1. **Le quota Let's Encrypt serait partagé avec tous les clients d'OVH.**
+   Vérifié le 21 septembre 2026 sur la liste officielle des suffixes publics :
+   `vps.ovh.net` n'y figure pas — seuls `*.hosting.ovh.net` et
+   `*.webpaas.ovh.net` y sont. Pour Let's Encrypt, le domaine de rattachement
+   est donc `ovh.net` tout entier, et le plafond de certificats par domaine
+   enregistré est commun à tous ceux qui utilisent leur nom par défaut. On
+   n'aurait aucune prise sur un `too many certificates already issued`.
+2. **Le challenge DNS-01 est impossible.** La zone `ovh.net` ne nous appartient
+   pas : aucun enregistrement TXT à y créer, donc ni wildcard, ni renouvellement
+   indépendant du port 80.
+3. **Le nom ne nous appartient pas non plus.** Il est attaché à la machine, et
+   change si la machine change.
+
+**Recommandation : un domaine distinct, au nom quelconque, quelques euros par an
+chez OVH.** Il donne exactement la propriété recherchée, sans aucun des trois
+inconvénients, et il rend le DNS-01 possible puisque la zone serait la nôtre.
+
+**Et une question à trancher avant celle du nom :** n8n a-t-il besoin d'être
+exposé ? Un serveur d'automatisation détient les jetons d'accès à tout ce qu'il
+pilote — c'est la cible la plus intéressante de la machine. Son interface peut
+n'être joignable que par un tunnel (WireGuard, ou un simple tunnel SSH), et seuls
+les points d'entrée de webhooks, s'il en faut, restent publics. Le nom de domaine
+ne sert alors plus qu'aux webhooks. À instruire dans le fil n8n.
+
+### Sauvegarde : GitHub au maximum, un roulement pour le reste
+
+Le principe retenu prolonge celui du site : **ce qui se reconstruit depuis Git
+n'a pas à être sauvegardé**. L'effort porte donc d'abord sur la réduction de ce
+qui n'est pas du code.
+
+**Va sur GitHub** : l'infrastructure as code, les configurations, les schémas et
+migrations de bases, le contenu éditorial, les jeux de données de référence sans
+données personnelles.
+
+**Ne va pas sur GitHub**, et ce point n'est pas négociable :
+
+1. **Les secrets.** Clé de chiffrement de n8n, jetons d'API, mots de passe de
+   bases. Un dépôt privé n'est pas un coffre-fort : il est lisible par toute
+   personne ayant accès au dépôt, et un secret poussé par erreur reste dans
+   l'historique même après suppression du fichier.
+2. **Les données personnelles des artisans.** Deux raisons distinctes, et la
+   première suffit : l'historique Git est immuable, donc une demande d'effacement
+   au titre du RGPD deviendrait impossible à honorer — le commit resterait. La
+   seconde est qu'y verser un fichier de données personnelles est un transfert
+   vers un tiers, qu'il faudrait pouvoir justifier et documenter.
+3. **Les credentials enregistrés dans n8n**, même chiffrés : ils ne valent que
+   ce que vaut la clé, et la clé ne doit pas vivre au même endroit.
+
+**D'où deux destinations.** GitHub pour le code. Un stockage à roulement pour
+l'état — bases de données, volumes, secrets chiffrés.
+
+Le roulement demandé est exactement ce que font les outils de sauvegarde à
+rétention, `restic` ou `borg` : garder tant de sauvegardes quotidiennes, tant
+d'hebdomadaires, tant de mensuelles, et purger le reste automatiquement. Ils
+chiffrent et dédupliquent au passage, ce qui rend la destination moins sensible.
+La destination naturelle est l'Object Storage d'OVH — compatible S3, en France,
+même fournisseur, facturé à l'usage — mais n'importe quel S3 convient, et en
+choisir un autre qu'OVH met les sauvegardes à l'abri d'un incident chez OVH.
+
+Deux réflexes à ne pas perdre : la clé de chiffrement des sauvegardes ne doit pas
+vivre uniquement sur la machine sauvegardée, et **une sauvegarde jamais restaurée
+n'est pas une sauvegarde** — la restauration se teste, et l'IaC rend ce test bon
+marché.
+
+---
+
+## 9 ter. Ce qui reste à décider
 
 1. **État réel de la production** : `PUBLIC_INDEXABLE` est-il à `1` ? Le `www`
    est-il déclaré au DNS ? Y a-t-il déjà quelque chose d'installé sur le VPS en
    dehors de cette pile ?
 2. **Nature de l'annuaire artisans** : volumétrie attendue, technologie, base de
    données souhaitée, et données à caractère personnel d'artisans — donc RGPD,
-   donc durée de conservation et sauvegarde.
-3. **n8n** : usage strictement personnel ou exposé à des tiers ? Besoin d'un
-   SMTP ? Jusqu'où accepte-t-on qu'il parle à l'extérieur ?
-4. **Sauvegarde** : option Backup d'OVH, snapshot, ou sauvegarde applicative
-   vers un stockage objet ? C'est le seul point où l'existant ne donne aucune
-   réponse réutilisable, puisqu'il n'avait rien à sauvegarder.
+   donc durée de conservation.
+3. **n8n exposé ou non**, et besoin d'un SMTP. Conditionne la réponse sur le nom
+   de domaine.
 
 
 ## 10. Fichiers de référence dans le dépôt d'origine
