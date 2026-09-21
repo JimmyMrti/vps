@@ -232,7 +232,7 @@ seulement si l'image a changé. L'annuaire s'y branche :
 ```yaml
 maj_nom: annuaire
 maj_dossier: /opt/vps/services/annuaire
-maj_image: ghcr.io/jimmymrti/annuaire:0.1.0   # voir l'avertissement ci-dessous
+maj_compose_service: annuaire
 maj_intervalle: 10min
 maj_commande_avant: "docker compose --profile migration run --rm migration"
 ```
@@ -241,10 +241,13 @@ maj_commande_avant: "docker compose --profile migration run --rm migration"
 **avant** le redémarrage : l'ancienne version continue de tourner sur une base
 intacte, et l'unité systemd apparaît en échec. C'est le bon comportement.
 
-> **Une seule chose à surveiller : `maj_image` et `ANNUAIRE_IMAGE` doivent
-> désigner la même image.** Le script compare l'empreinte de `maj_image` pour
-> décider s'il y a quelque chose à faire, tandis que la pile démarre ce que dit
-> `ANNUAIRE_IMAGE` dans `.env`. Si les deux divergent, le script ne voit jamais
-> de changement et ne redémarre rien — sans erreur, sans trace. Une panne
-> silencieuse, donc la pire. Les deux valeurs se changent ensemble, au même
-> moment.
+`maj_compose_service` désigne le service à suivre — ici `annuaire`, pas `web` :
+la pile en contient plusieurs (l'application, sa base, le conteneur de
+migration), et sans cette désignation le script ne saurait pas laquelle des
+images surveiller.
+
+L'étiquette de l'image n'est déclarée qu'à un seul endroit, `ANNUAIRE_IMAGE`
+dans `.env` : le script la lit depuis la pile elle-même. C'est ce qui évite la
+panne la plus vicieuse du genre — deux déclarations qui divergent, un script
+qui ne voit jamais de changement, et un service qui reste des semaines sur
+l'ancienne version sans que rien ne le signale.
