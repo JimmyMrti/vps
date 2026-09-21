@@ -25,22 +25,33 @@
     - "{{ proxy_dossier }}"
     - "{{ proxy_dossier }}/sites"
 
-- name: Vérifier que les fichiers de site existent dans le dépôt
-  ansible.builtin.stat:
-    path: "{{ proxy_source_sites }}"
-  delegate_to: localhost
-  become: false
-  register: proxy_sites_source
+# Le frontal ne sert que ce que décrivent les fichiers edge/sites/*.caddy.
+# Sans eux il démarre très bien, et ne répond à personne — une panne qui ne
+# ressemble pas à une panne.
+#
+# Le contrôle compte les fichiers de DOMAINE, pas les fichiers du dossier :
+# celui-ci contient aussi un README et les extraits communs, dont le préfixe
+# numérique impose d'être lus en premier. Compter le dossier non vide
+# laisserait donc passer un frontal sans un seul domaine.
+- name: Relever les fichiers de domaine présents dans le dépôt
+  ansible.builtin.set_fact:
+    proxy_fichiers_domaine: >-
+      {{ query('ansible.builtin.fileglob', proxy_source_sites + '/*.caddy')
+         | map('basename')
+         | reject('match', '^[0-9]')
+         | list }}
 
 - name: Refuser de démarrer un frontal sans aucun domaine
   ansible.builtin.assert:
-    that: proxy_sites_source.stat.exists
+    that: proxy_fichiers_domaine | length > 0
     fail_msg: >-
-      {{ proxy_source_sites }} est introuvable. Le frontal ne sert que ce que
-      décrivent les fichiers edge/sites/*.caddy : sans eux, il démarrerait en
-      ne répondant à personne. Ces fichiers sont fournis par le fil des
-      services applicatifs.
-    quiet: true
+      Aucun fichier de domaine dans {{ proxy_source_sites }} (les fichiers à
+      préfixe numérique sont des extraits communs, pas des domaines). Le
+      frontal démarrerait sans répondre à personne. Ces fichiers sont fournis
+      par le fil des services applicatifs.
+    success_msg: >-
+      Domaines décrits : {{ proxy_fichiers_domaine | join(', ') }}
+    quiet: false
 
 - name: Déployer les fichiers de site
   ansible.builtin.copy:

@@ -61,8 +61,9 @@ L'installation complète, pas à pas, est dans
 |---|---|
 | `terraform/` | ce qui vit chez OVH : DNS, reverse DNS, politique de courrier, CAA |
 | `ansible/` | ce qui vit sur la machine : système, durcissement, Docker, frontal |
-| `edge/sites/` | un fichier Caddy par domaine servi |
-| `services/` | les piles applicatives et leur exploitation |
+| [`edge/sites/`](edge/sites/) | un fichier de configuration Caddy par domaine, importés par le frontal |
+| [`services/`](services/) | les piles Docker Compose des services applicatifs, leurs sauvegardes et leurs unités systemd |
+| [`docs/services/`](docs/services/) | l'accueil de n8n et de l'annuaire : cloisonnement, bases, dimensionnement, sauvegardes, données personnelles |
 | `docs/` | architecture, conformité, exploitation, décisions |
 | `docs/adr/` | les décisions et leurs raisons |
 
