@@ -16,3 +16,10 @@ maj_description: "Mise a jour automatique d'un service"
 # Si la commande échoue, le script s'arrête avant le démarrage : l'ancienne
 # version continue de tourner sur une base intacte.
 maj_commande_avant: ""
+
+# Nom du service compose dont on suit l'image.
+#
+# Nécessaire dès que la pile déclare plusieurs images — une application et sa
+# base, par exemple : sans lui, le script suit la première venue, ce qui n'est
+# pas forcément celle qui porte le code.
+maj_compose_service: ""

@@ -7,11 +7,49 @@
 set -euo pipefail
 
 DOSSIER="{{ maj_dossier }}"
-IMAGE="{{ maj_image }}"
 
 cd "$DOSSIER"
 
 compose() { docker compose "$@"; }
+
+# --- Quelle etiquette suivre ------------------------------------------------
+#
+# Elle est lue DANS LA PILE, pas dans une variable recopiee ici.
+#
+# Le fichier compose et son .env sont la seule chose qui decide de ce qui
+# demarre reellement. Si le script suivait une etiquette tenue a part, les
+# deux pourraient diverger — quelqu'un releve la version dans .env et oublie
+# la variable — et le script ne verrait alors jamais de changement. Pas
+# d'erreur, pas de trace : le service resterait fige sur une ancienne version
+# pendant des semaines. Une panne silencieuse est la pire des trois
+# categories, et celle-ci se supprime par construction.
+{% if maj_compose_service | default('') | trim %}
+IMAGES="$(compose config --images {{ maj_compose_service }})"
+{% else %}
+IMAGES="$(compose config --images)"
+{% endif %}
+
+# Pas de pipe vers `head` : avec `set -o pipefail`, la fermeture anticipee du
+# tube ferait echouer la commande amont.
+IMAGE="${IMAGES%%$'\n'*}"
+
+if [ -z "$IMAGE" ]; then
+  echo "Impossible de lire l'etiquette de l'image dans la pile de $DOSSIER." >&2
+  exit 1
+fi
+
+if [ "$IMAGES" != "$IMAGE" ]; then
+  echo "AVERTISSEMENT: la pile declare plusieurs images, seule $IMAGE est suivie." >&2
+  echo "  Designez le service avec maj_compose_service pour lever l'ambiguite." >&2
+fi
+
+# Ce que le depot croit deployer, a titre de controle seulement : c'est la
+# pile qui fait foi. Un ecart est signale plutot que corrige en silence.
+ATTENDUE="{{ maj_image }}"
+if [ "$IMAGE" != "$ATTENDUE" ]; then
+  echo "AVERTISSEMENT: la pile demarre $IMAGE," >&2
+  echo "  alors que le depot annonce $ATTENDUE. La pile fait foi." >&2
+fi
 
 # Empreinte de l'image locale portant cette étiquette.
 #
