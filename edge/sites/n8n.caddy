@@ -1,44 +1,56 @@
-# n8n — deux portes derrière la même adresse.
+# n8n — un domaine qui ne sert QUE les webhooks.
 #
-# Les webhooks doivent être joignables depuis n'importe où : c'est leur raison
-# d'être. L'interface d'administration et l'API REST, non. La séparation se
-# fait ici, au frontal, et pas dans n8n : une faille d'authentification dans
-# n8n ne doit pas suffire à entrer.
+# La dissociation ne se fait pas par prudence à l'intérieur de n8n, mais ici,
+# au frontal, avant que quoi que ce soit n'atteigne l'application :
 #
-# Voir docs/services/n8n.md.
+#   - ce domaine ne répond qu'aux chemins d'appel entrant ;
+#   - l'éditeur, la page de connexion et l'API REST n'ont AUCUNE adresse
+#     publique — ni sur ce domaine, ni sur un autre. On y accède par tunnel
+#     SSH, et par rien d'autre.
+#
+# Conséquence : une faille d'authentification dans n8n ne suffit pas à entrer,
+# puisqu'il n'y a pas de formulaire de connexion joignable.
+#
+# Tant que N8N_DOMAIN n'est pas renseigné, le nom par défaut est en .localhost
+# et rien de tout ceci n'est en service. Voir docs/services/n8n.md.
 
 {$N8N_DOMAIN:n8n.localhost} {
 	import tls_anssi
 	import entetes_securite
 	import journal_acces
 
-	encode zstd gzip
+	# Les seuls chemins qui ont une raison d'être joignables : ceux qu'un
+	# service tiers appelle.
+	@appels_entrants path /webhook/* /webhook-test/* /webhook-waiting/* /form/* /form-waiting/*
 
-	# Ce qui doit rester public, et rien d'autre.
-	@public path /webhook/* /webhook-test/* /webhook-waiting/* /form/* /form-waiting/* /healthz
-
-	handle @public {
+	handle @appels_entrants {
 		reverse_proxy n8n:5678
 	}
 
-	# Tout le reste : interface, /rest/*, /api/*.
+	# Tout le reste — « / », l'éditeur, /rest/*, /api/* — n'existe pas ici.
 	#
-	# La valeur par défaut est une adresse de documentation (RFC 5737), jamais
-	# attribuée à un client réel : sans N8N_IP_ADMIN renseigné, l'interface est
-	# fermée à tout le monde. On y accède alors par un tunnel SSH, ce qui est
-	# la configuration la plus sûre :
-	#
-	#   ssh -L 5678:localhost:5678 ubuntu@VPS   puis   http://localhost:5678
+	# 404 plutôt que 403 : inutile de confirmer à un inconnu qu'il y a quelque
+	# chose derrière cette adresse. Pour la même raison, aucune redirection
+	# vers une page de connexion.
 	handle {
-		@hors_liste not client_ip {$N8N_IP_ADMIN:192.0.2.1}
-		# 404 plutôt que 403 : inutile de confirmer à un inconnu qu'il y a
-		# quelque chose derrière cette adresse.
-		respond @hors_liste 404
-
-		reverse_proxy n8n:5678
+		respond 404
 	}
 
-	# Un n8n indexé par un moteur de recherche est un n8n qu'on trouve sans
+	# --- Variante : accéder à l'éditeur depuis un navigateur, sans tunnel ---
+	#
+	# À n'activer que si le tunnel SSH devient vraiment gênant, et seulement
+	# avec une adresse IP fixe. Remplacer le `handle` ci-dessus par :
+	#
+	# handle {
+	# 	@hors_liste not client_ip {$N8N_IP_ADMIN:192.0.2.1}
+	# 	respond @hors_liste 404
+	# 	reverse_proxy n8n:5678
+	# }
+	#
+	# Et passer N8N_COOKIE_SECURISE à true dans .env : le cookie de session
+	# traverserait alors le réseau, et doit être marqué « secure ».
+
+	# Un n8n référencé par un moteur de recherche est un n8n qu'on trouve sans
 	# chercher.
 	header X-Robots-Tag "noindex, nofollow"
 }

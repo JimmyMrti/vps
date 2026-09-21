@@ -47,8 +47,11 @@ services:
       N8N_HOST: ${N8N_DOMAIN:-localhost}
       N8N_PORT: 5678
       N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
-      N8N_EDITOR_BASE_URL: ${N8N_URL_PUBLIQUE:-http://localhost:5678}
-      WEBHOOK_URL: ${N8N_URL_PUBLIQUE:-http://localhost:5678}/
+      # Deux URL distinctes, et c'est le cœur de la dissociation : les
+      # adresses de webhook données aux services tiers n'ont rien à voir avec
+      # celle de l'éditeur, qui reste sur la boucle locale.
+      N8N_EDITOR_BASE_URL: ${N8N_URL_EDITEUR:-http://localhost:5678}
+      WEBHOOK_URL: ${N8N_URL_WEBHOOK:-http://localhost:5678}/
       N8N_SECURE_COOKIE: ${N8N_COOKIE_SECURISE:-false}
       N8N_PROXY_HOPS: ${N8N_SAUTS_PROXY:-0}
 

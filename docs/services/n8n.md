@@ -56,9 +56,10 @@ joignables par ce moyen.
 renseigné : le nom par défaut est en `.localhost`, Caddy fabrique un certificat
 interne et ne demande rien à Let's Encrypt.
 
-**Le jour où un workflow a besoin d'un appel entrant**, on renseigne
-`N8N_DOMAIN` et l'exposition s'active — avec les seuls chemins de webhook
-publics, tout le reste restant fermé. Le fichier est déjà écrit pour cela.
+**Le jour où un workflow a besoin d'un appel entrant**, on renseigne deux
+variables et seuls les chemins de webhook deviennent joignables — l'éditeur
+n'obtient toujours aucune adresse publique. La mécanique est détaillée à la
+section suivante.
 
 Ce que coûte ce choix, honnêtement : certaines intégrations n'ont d'autre
 option que le webhook, et d'autres deviennent des relevés périodiques — plus
@@ -68,46 +69,75 @@ porte dont personne ne se sert.
 
 ---
 
-## Exposition : deux portes, pas une
+## Dissocier les webhooks de l'éditeur
 
-**Cette section décrit ce qui se passe quand l'exposition est activée**, donc
-le jour où un webhook entrant devient nécessaire. Par défaut, rien de tout cela
-n'est en service.
+C'est la question centrale dès qu'on expose n8n, et elle a une réponse nette.
 
-Un n8n exposé, c'est en réalité deux applications derrière la même adresse :
+Un n8n, ce sont deux choses derrière la même application :
 
-- les **webhooks**, qui doivent être joignables depuis n'importe où puisque
-  c'est tout leur objet — un service tiers appelle une URL et n8n réagit ;
-- l'**interface d'administration et l'API REST**, qui n'ont aucune raison
+- les **appels entrants** — webhooks et formulaires — qui doivent être
+  joignables depuis n'importe où, puisque c'est leur objet : un service tiers
+  appelle une URL et n8n réagit ;
+- l'**éditeur**, sa page de connexion et son API REST, qui n'ont aucune raison
   d'être joignables depuis n'importe où.
 
-Le frontal sépare les deux ([`edge/sites/n8n.caddy`](../../edge/sites/n8n.caddy)) :
+**La séparation se fait au frontal, pas dans n8n.** Elle est donc effective
+avant que quoi que ce soit n'atteigne l'application, et une faille
+d'authentification dans n8n ne suffit pas à entrer.
 
-| Chemin | Accès |
+### La mécanique, concrètement
+
+Un seul domaine public, qui ne répond **qu'aux** chemins d'appel entrant :
+
+| Chemin | Sur le domaine public |
 |---|---|
-| `/webhook/*`, `/webhook-test/*`, `/webhook-waiting/*` | public |
-| `/form/*`, `/form-waiting/*` | public |
-| `/healthz` | public, réservé à la supervision |
-| tout le reste : interface, `/rest/*`, `/api/*` | restreint par liste d'adresses IP |
+| `/webhook/*`, `/webhook-test/*`, `/webhook-waiting/*` | servis |
+| `/form/*`, `/form-waiting/*` | servis |
+| `/` — la page de connexion | **404** |
+| `/rest/*`, `/api/*` — l'éditeur et l'API | **404** |
 
-La liste d'adresses n'est pas l'authentification : c'est ce qui fait qu'une
-faille d'authentification dans n8n ne se transforme pas en compromission le
-jour où elle est publiée. Elle se règle dans `N8N_IP_ADMIN` (voir
-`services/n8n/.env.example`).
+404 et non 403 : inutile de confirmer à un inconnu qu'il y a quelque chose
+derrière cette adresse. Et aucune redirection vers une page de connexion, qui
+reviendrait à annoncer ce qu'on vient de cacher.
 
-**Si l'adresse IP du poste n'est pas fixe** — cas courant en connexion
-résidentielle — deux options, dans cet ordre de préférence :
+L'éditeur, lui, **n'a aucune adresse publique** — ni sur ce domaine, ni sur un
+autre. Il n'y a donc pas de formulaire de connexion joignable depuis Internet,
+et c'est la différence entre « protégé par un mot de passe » et « absent ».
+L'accès passe par le tunnel SSH.
 
-1. autoriser le préfixe du fournisseur d'accès, plus large mais toujours mille
-   fois plus étroit qu'Internet ;
-2. autoriser uniquement le réseau du VPS et passer par un tunnel SSH :
-   `ssh -L 5678:localhost:5678 ubuntu@VPS` puis `http://localhost:5678`. Le port
-   n'est alors jamais exposé. C'est la solution la plus propre, au prix d'une
-   commande à taper.
+Côté n8n, deux réglages portent cette dissociation, et ils sont indépendants :
 
-Le choix par défaut retenu ici est le tunnel SSH, avec la liste d'adresses
-laissée vide et donc l'interface fermée. Il suffit d'y écrire une IP pour
-ouvrir.
+```ini
+N8N_URL_WEBHOOK=https://<domaine-public>   # les adresses données aux tiers
+N8N_URL_EDITEUR=http://localhost:5678      # les liens internes de l'éditeur
+```
+
+n8n fabrique l'adresse d'un webhook à partir du premier. Un service tiers
+enregistre donc `https://<domaine-public>/webhook/xxxx`, et n'a jamais
+connaissance de l'autre.
+
+### Ce que cela ne protège pas
+
+**Un webhook n'est pas authentifié par n8n.** Son URL est un secret d'URL,
+rien de plus : elle fuit dans les journaux, les historiques, les
+copier-coller. Chaque workflow déclenché par webhook doit vérifier lui-même
+l'appelant — signature HMAC quand le service tiers en propose une (GitHub,
+Stripe, Brevo…), en-tête d'authentification à défaut. **Un workflow qui agit
+sans vérifier est une porte ouverte avec une adresse difficile à deviner.**
+
+C'est le vrai point d'attention de tout le dispositif : la séparation ci-dessus
+met l'éditeur hors de portée, mais les webhooks restent des points d'entrée
+publics, par construction.
+
+### Et aujourd'hui
+
+**Rien de tout cela n'est en service.** Tant qu'aucun workflow n'a besoin d'un
+appel entrant, `N8N_DOMAIN` reste vide, le frontal ne sert aucun domaine pour
+n8n, et il n'existe donc aucune surface publique du tout — pas même les
+webhooks. Le fichier est écrit et prêt ; il suffira de renseigner deux
+variables le jour venu.
+
+---
 
 ---
 
@@ -194,19 +224,22 @@ résout pas encore fait échouer la demande de certificat.
 | Compte propriétaire obligatoire | natif depuis n8n 1.x, aucun mode anonyme |
 | Double authentification (TOTP) | à activer dans le profil dès la première connexion |
 | API publique | désactivée — `N8N_PUBLIC_API_DISABLED=true` |
-| Cookie de session | `N8N_SECURE_COOKIE=true`, donc HTTPS obligatoire |
-| Nombre de sauts de proxy | `N8N_PROXY_HOPS=1`, sinon n8n voit l'IP de Caddy partout |
+| Cookie de session | `N8N_SECURE_COOKIE` suit le chemin d'accès — voir `.env.example` |
+| Nombre de sauts de proxy | `N8N_PROXY_HOPS=1` dès qu'un webhook passe par le frontal |
 
-`N8N_PROXY_HOPS` n'est pas un détail : sans lui, la limitation de débit interne
-de n8n et ses journaux attribuent toutes les requêtes à la même adresse, celle
-du frontal.
+Le cookie de session n'est marqué « secure » que s'il peut traverser le réseau.
+Tant que l'éditeur n'est joint que par tunnel SSH, sur `http://localhost`, il ne
+le traverse jamais : le marquer bloquerait simplement la connexion, sans rien
+protéger. Il redevient obligatoire le jour où l'éditeur serait servi par le
+frontal.
 
-**Les webhooks ne sont pas authentifiés par n8n.** Une URL de webhook est un
-secret d'URL, rien de plus : elle fuit dans les journaux, dans les historiques,
-dans les copier-coller. Chaque workflow déclenché par webhook doit vérifier
-lui-même l'appelant — signature HMAC quand le service tiers en propose une
-(GitHub, Stripe, Brevo…), en-tête d'authentification à défaut. Un workflow qui
-agit sans vérifier est une porte ouverte avec une adresse difficile à deviner.
+`N8N_PROXY_HOPS` n'est pas un détail non plus : sans lui, la limitation de débit
+interne de n8n et ses journaux attribuent tous les appels de webhook à la même
+adresse, celle du frontal.
+
+L'authentification des webhooks eux-mêmes est traitée plus haut, à la section
+qui les sépare de l'éditeur : elle ne relève pas de n8n mais de chaque
+workflow.
 
 ---
 
