@@ -165,8 +165,8 @@ systemctl enable --now sauvegarde.timer verification-sauvegarde.timer \
                        restauration-test.timer surveillance-disque.timer \
                        export-workflows-n8n.timer
 
-# 10. Pour l'annuaire seulement, la mise à jour automatique. Pas pour n8n :
-#     voir « Mises à jour » plus bas.
+# 10. Pour l'annuaire seulement, la mise à jour automatique — posée par le
+#     rôle `maj_service` du socle. Pas pour n8n : voir « Mises à jour ».
 systemctl enable --now maj-annuaire.timer
 ```
 
@@ -219,13 +219,32 @@ Le retour arrière n'est pas garanti : si la migration a modifié le schéma,
 redescendre de version demande de restaurer la base. C'est précisément
 pourquoi l'étape 1 n'est pas facultative.
 
-### L'annuaire : mise à jour automatique, mais avec les migrations
+### L'annuaire : mise à jour automatique, avec les migrations
 
-L'annuaire est notre code, publié en continu : le modèle « pull » lui va. Mais
-le script générique du socle fait `pull` puis `up -d`, sans jouer les
-migrations de schéma — il démarrerait donc une version du code sur une base
-restée en arrière.
+L'annuaire est notre code, publié en continu : le modèle « pull » lui va, et
+il utilise le rôle `maj_service` du socle.
 
-D'où [`services/annuaire/maj.sh`](../../services/annuaire/maj.sh), qui fait la
-même chose dans le bon ordre : tirer l'image, jouer les migrations, puis
-seulement redémarrer. Et qui ne fait rien du tout si l'image n'a pas changé.
+Le script générique faisait `pull` puis `up -d`, ce qui aurait démarré du code
+neuf sur une base restée en arrière. Le socle a ajouté un crochet
+`maj_commande_avant`, joué entre le téléchargement et le démarrage, et
+seulement si l'image a changé. L'annuaire s'y branche :
+
+```yaml
+maj_nom: annuaire
+maj_dossier: /opt/vps/services/annuaire
+maj_image: ghcr.io/jimmymrti/annuaire:0.1.0   # voir l'avertissement ci-dessous
+maj_intervalle: 10min
+maj_commande_avant: "docker compose --profile migration run --rm migration"
+```
+
+`set -e` étant actif dans le script, une migration qui échoue arrête tout
+**avant** le redémarrage : l'ancienne version continue de tourner sur une base
+intacte, et l'unité systemd apparaît en échec. C'est le bon comportement.
+
+> **Une seule chose à surveiller : `maj_image` et `ANNUAIRE_IMAGE` doivent
+> désigner la même image.** Le script compare l'empreinte de `maj_image` pour
+> décider s'il y a quelque chose à faire, tandis que la pile démarre ce que dit
+> `ANNUAIRE_IMAGE` dans `.env`. Si les deux divergent, le script ne voit jamais
+> de changement et ne redémarre rien — sans erreur, sans trace. Une panne
+> silencieuse, donc la pire. Les deux valeurs se changent ensemble, au même
+> moment.
