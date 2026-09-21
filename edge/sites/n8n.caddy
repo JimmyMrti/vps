@@ -32,6 +32,13 @@
 	# 404 plutôt que 403 : inutile de confirmer à un inconnu qu'il y a quelque
 	# chose derrière cette adresse. Pour la même raison, aucune redirection
 	# vers une page de connexion.
+	#
+	# Ce 404 par défaut ne gêne PAS le renouvellement du certificat, contrairement
+	# à ce qu'on pourrait craindre : Caddy place ses propres routes — réponse au
+	# défi ACME et redirection HTTP vers HTTPS — avant les routes d'un bloc
+	# nommé. Le défi sur /.well-known/acme-challenge/ est donc traité par Caddy
+	# lui-même et n'arrive jamais ici. Ne pas « corriger » ce bloc en y ajoutant
+	# une exception pour ce chemin : elle serait inutile.
 	handle {
 		respond 404
 	}
