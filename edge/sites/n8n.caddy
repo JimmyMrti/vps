@@ -8,6 +8,7 @@
 # Voir docs/services/n8n.md.
 
 {$N8N_DOMAIN:n8n.localhost} {
+	import tls_anssi
 	import entetes_securite
 	import journal_acces
 
@@ -29,7 +30,7 @@
 	#
 	#   ssh -L 5678:localhost:5678 ubuntu@VPS   puis   http://localhost:5678
 	handle {
-		@hors_liste not remote_ip {$N8N_IP_ADMIN:192.0.2.1}
+		@hors_liste not client_ip {$N8N_IP_ADMIN:192.0.2.1}
 		# 404 plutôt que 403 : inutile de confirmer à un inconnu qu'il y a
 		# quelque chose derrière cette adresse.
 		respond @hors_liste 404

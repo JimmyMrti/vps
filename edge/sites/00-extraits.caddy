@@ -1,4 +1,9 @@
 # Extraits communs. Lu avant les autres fichiers grâce au préfixe numérique.
+#
+# Un quatrième extrait, `tls_anssi`, n'est PAS défini ici : il vient du
+# Caddyfile du socle, qui porte le profil TLS retenu. Les fichiers de site
+# l'importent au même titre que ceux-ci. Conséquence : ces fichiers ne
+# s'utilisent qu'avec le frontal du socle, jamais seuls.
 
 # En-têtes de sécurité applicables à tout site servi par ce frontal.
 #

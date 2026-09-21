@@ -10,6 +10,7 @@
 # avec `make dev`). Voir docs/services/annuaire.md.
 
 {$ANNUAIRE_DOMAIN:annuaire.localhost} {
+	import tls_anssi
 	import entetes_securite
 	import journal_acces
 
@@ -26,7 +27,7 @@
 	# application (ANNUAIRE_INDEXABLE) reste le garde-fou principal : ces deux
 	# lignes ne servent que pendant la phase de lancement.
 	#
-	# @hors_liste not remote_ip {$ANNUAIRE_IP_PRIVE:192.0.2.1}
+	# @hors_liste not client_ip {$ANNUAIRE_IP_PRIVE:192.0.2.1}
 	# respond @hors_liste 404
 	# header X-Robots-Tag "noindex, nofollow"
 

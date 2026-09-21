@@ -8,6 +8,7 @@
 # publié, exactement comme aujourd'hui. Rien ne change dans l'image du site.
 
 {$SITE_DOMAIN:preventioncambriolage.fr} {
+	import tls_anssi
 	import entetes_securite
 	import journal_acces
 
