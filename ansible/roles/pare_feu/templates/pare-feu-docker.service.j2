@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+#
+# Docker vide et reconstruit ses chaînes netfilter à chaque démarrage. Les
+# règles de DOCKER-USER doivent donc être reposées après lui — et après chaque
+# redémarrage du démon, d'où le PartOf.
+
+[Unit]
+Description=Filtrage du trafic entrant vers les conteneurs (DOCKER-USER)
+Documentation=https://github.com/JimmyMrti/vps
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/usr/local/sbin/pare-feu-docker.sh
+
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

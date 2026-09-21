@@ -1,0 +1,53 @@
+# {{ ansible_managed }}
+#
+# Règles d'audit. Volontairement courtes : une règle par événement que l'on
+# saurait réellement exploiter. Un jeu de règles exhaustif produit un volume
+# que personne ne lit, ce qui revient à ne rien journaliser du tout.
+
+# Repartir d'un état connu.
+-D
+-b 8192
+--backlog_wait_time 60000
+-f 1
+
+# --- Modifications des comptes et des privilèges ----------------------------
+-w /etc/passwd    -p wa -k comptes
+-w /etc/shadow    -p wa -k comptes
+-w /etc/group     -p wa -k comptes
+-w /etc/gshadow   -p wa -k comptes
+-w /etc/sudoers   -p wa -k elevation
+-w /etc/sudoers.d -p wa -k elevation
+
+# --- Accès distant ----------------------------------------------------------
+-w /etc/ssh/sshd_config    -p wa -k ssh
+-w /etc/ssh/sshd_config.d  -p wa -k ssh
+
+# --- Pare-feu ---------------------------------------------------------------
+-w /etc/nftables.conf                  -p wa -k pare_feu
+-w /usr/local/sbin/pare-feu-docker.sh  -p wa -k pare_feu
+
+# --- Docker -----------------------------------------------------------------
+# Appartenir au groupe docker équivaut à être root : la socket mérite donc
+# la même surveillance qu'une commande d'élévation.
+-w /var/run/docker.sock  -p rwa -k docker
+-w /etc/docker           -p wa  -k docker
+-w /usr/bin/dockerd      -p x   -k docker
+
+# --- Dossiers de déploiement ------------------------------------------------
+-w /opt  -p wa -k deploiement
+
+# --- Chargement de modules noyau --------------------------------------------
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -F auid!=-1 -k modules
+
+# --- Élévations réussies ----------------------------------------------------
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k elevation
+
+# --- Modifications de l'heure -----------------------------------------------
+# Une horloge décalée rend les journaux incomparables entre eux.
+-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k heure
+-w /etc/localtime -p wa -k heure
+
+# --- Verrouiller la configuration d'audit -----------------------------------
+# Doit rester la DERNIÈRE ligne : au-delà, plus aucune règle n'est modifiable
+# sans redémarrage, ce qui rend visible toute tentative de désactivation.
+-e 2

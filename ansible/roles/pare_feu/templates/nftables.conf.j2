@@ -1,0 +1,86 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+#
+# Filtrage du trafic à destination de l'hôte.
+#
+# Ce fichier ne dit RIEN du trafic à destination des conteneurs : celui-ci
+# traverse la chaîne `forward` et les chaînes propres à Docker, que Docker
+# réécrit à chaque démarrage de conteneur. Il est tenu séparément par
+# /usr/local/sbin/pare-feu-docker.sh.
+
+flush ruleset
+
+table inet filtre {
+
+    # Adresses bannies par fail2ban, alimentées dynamiquement.
+    set bannis_v4 {
+        type ipv4_addr
+        flags timeout
+    }
+
+    set bannis_v6 {
+        type ipv6_addr
+        flags timeout
+    }
+
+    chain entree {
+        type filter hook input priority filter; policy drop;
+
+        # Tout ce qui est déjà accepté continue de l'être. Placé en premier :
+        # c'est la règle la plus souvent évaluée, et la boucle locale suit.
+        ct state established,related accept
+        ct state invalid drop
+
+        iif lo accept
+
+        ip saddr @bannis_v4 drop
+        ip6 saddr @bannis_v6 drop
+
+        # --- ICMP -----------------------------------------------------------
+        # Filtrer tout l'ICMP est une fausse bonne idée : en IPv6 il porte la
+        # découverte de voisins, et en IPv4 la découverte de MTU. Les couper
+        # produit des connexions qui s'arrêtent au milieu d'un transfert, sans
+        # message d'erreur. On limite le débit plutôt que d'interdire.
+        ip protocol icmp icmp type { echo-request } limit rate 10/second accept
+        ip protocol icmp icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+        ip6 nexthdr ipv6-icmp icmpv6 type { echo-request } limit rate 10/second accept
+        ip6 nexthdr ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
+
+        # --- Services exposés -----------------------------------------------
+{% for regle in pare_feu_ports_ouverts %}
+        # {{ regle.raison }}
+{% if regle.port == ssh_port and regle.protocole == 'tcp' %}
+{% if ssh_adresses_autorisees | length > 0 %}
+        ip saddr { {{ ssh_adresses_autorisees | join(', ') }} } tcp dport {{ regle.port }} ct state new limit rate 10/minute accept
+{% else %}
+        # Limite de débit sur les nouvelles connexions : elle n'arrête pas une
+        # attaque ciblée, mais elle éteint le bruit de fond du balayage.
+        tcp dport {{ regle.port }} ct state new limit rate 10/minute accept
+{% endif %}
+{% else %}
+        {{ regle.protocole }} dport {{ regle.port }} accept
+{% endif %}
+{% endfor %}
+
+        # Ce qui tombe ici est refusé par la politique de chaîne.
+        # Journalisé à débit limité : un journal saturé est un journal illisible.
+        limit rate 5/minute burst 10 packets log prefix "nft-refus-entree " level info
+    }
+
+    chain sortie {
+        type filter hook output priority filter; policy accept;
+        # Le trafic sortant reste libre. Le restreindre supposerait de tenir à
+        # jour la liste des destinations légitimes (registres d'images, ACME,
+        # dépôts apt, appels sortants de n8n) — une liste qui dérive et finit
+        # par être désactivée en catastrophe un soir de panne.
+        # Décision assumée, voir docs/conformite-anssi.md.
+    }
+
+    chain transfert {
+        type filter hook forward priority filter; policy drop;
+        # Docker insère ses propres chaînes de transfert à une priorité plus
+        # basse : ce `drop` ne bloque pas les conteneurs. Il refuse le
+        # routage de tout ce qui ne relève pas d'une règle Docker explicite.
+        ct state established,related accept
+    }
+}

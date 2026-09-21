@@ -1,0 +1,37 @@
+# {{ ansible_managed }}
+
+[Unit]
+Description={{ maj_description }}
+Documentation=https://github.com/JimmyMrti/vps
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart={{ maj_dossier }}/maj.sh
+TimeoutStartSec=600
+
+# Identifiants du registre.
+#
+# Ce service tourne en root, alors qu'un `docker login` ordinaire ecrit dans le
+# dossier personnel de l'utilisateur courant : root n'y trouverait rien et le
+# telechargement echouerait sur « unauthorized ». Le durcissement ci-dessous
+# masque en outre /home ET /root, ce qui interdit aussi la solution evidente.
+# D'ou un emplacement dedie, pointe explicitement.
+Environment=DOCKER_CONFIG=/etc/docker/identifiants
+
+# Durcissement : ce service n'a besoin de rien d'autre que de Docker.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths={{ maj_dossier }}
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

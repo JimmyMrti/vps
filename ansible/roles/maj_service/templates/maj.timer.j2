@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+
+[Unit]
+Description=Verifie si une nouvelle version de {{ maj_nom }} est publiee
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec={{ maj_intervalle }}
+# Evite que tous les serveurs interrogent le registre a la meme seconde.
+RandomizedDelaySec=60
+Persistent=true
+Unit=maj-{{ maj_nom }}.service
+
+[Install]
+WantedBy=timers.target

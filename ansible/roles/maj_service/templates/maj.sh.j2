@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Récupère la dernière image publiée de {{ maj_nom }} et redémarre le service
+# si elle a changé. Idempotent : si rien n'a changé, il ne se passe rien.
+
+set -euo pipefail
+
+DOSSIER="{{ maj_dossier }}"
+IMAGE="{{ maj_image }}"
+
+cd "$DOSSIER"
+
+compose() { docker compose "$@"; }
+
+# Empreinte de l'image locale portant cette étiquette.
+#
+# On interroge l'image et non le conteneur : après un `pull`, le conteneur
+# tourne toujours sur l'ancienne version, donc le comparer ne détecterait
+# jamais rien. C'est l'identifiant de l'image étiquetée qui bouge.
+empreinte() {
+  docker image inspect --format '{% raw %}{{.Id}}{% endraw %}' "$IMAGE" 2>/dev/null || echo "absente"
+}
+
+avant="$(empreinte)"
+compose pull --quiet
+apres="$(empreinte)"
+
+if [ "$avant" = "$apres" ]; then
+  echo "Aucune nouvelle image ($IMAGE). Rien a faire."
+  exit 0
+fi
+
+echo "Nouvelle image detectee pour {{ maj_nom }}."
+echo "  avant : $avant"
+echo "  apres : $apres"
+
+compose up -d --remove-orphans
+
+echo "{{ maj_nom }} a jour."

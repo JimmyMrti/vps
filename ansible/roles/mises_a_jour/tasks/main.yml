@@ -1,0 +1,59 @@
+---
+# ===========================================================================
+# Mises à jour de sécurité automatiques.
+#
+# La majorité des intrusions réussies exploitent une faille déjà corrigée
+# depuis des semaines. Un serveur qui ne se met pas à jour seul finit par ne
+# plus se mettre à jour du tout : personne n'a jamais le temps le bon jour.
+# ===========================================================================
+
+- name: Installer unattended-upgrades
+  ansible.builtin.apt:
+    name:
+      - unattended-upgrades
+      - apt-listchanges
+      - needrestart
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Configurer les mises à jour automatiques
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Activer la périodicité des mises à jour
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // {{ ansible_managed }}
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Download-Upgradeable-Packages "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+- name: Redémarrer automatiquement les services qui le demandent
+  ansible.builtin.copy:
+    dest: /etc/needrestart/conf.d/99-automatique.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      # Sans cela, un correctif de bibliothèque est installé mais les
+      # processus qui l'utilisent tournent toujours sur l'ancienne version :
+      # le serveur se croit à jour et ne l'est pas.
+      $nrconf{restart} = 'a';
+      $nrconf{kernelhints} = 0;
+
+- name: Activer le service de mise à jour
+  ansible.builtin.systemd_service:
+    name: unattended-upgrades
+    enabled: true
+    state: started

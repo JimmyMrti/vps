@@ -1,0 +1,27 @@
+# L'état Terraform contient l'IP du serveur et la structure de la zone DNS.
+# Il n'a rien à faire dans le dépôt : `terraform.tfstate` est dans .gitignore.
+#
+# Pour un usage à une seule personne, l'état local sauvegardé avec le reste du
+# poste suffit. Dès qu'une seconde personne intervient, passer à un état
+# distant verrouillé — OVH Object Storage parle le protocole S3 :
+#
+# Copier ce fichier en backend.tf (ignoré par git) et renseigner :
+
+terraform {
+  backend "s3" {
+    bucket = "tfstate-vps"
+    key    = "vps/terraform.tfstate"
+    region = "gra"
+
+    endpoints = {
+      s3 = "https://s3.gra.io.cloud.ovh.net"
+    }
+
+    # OVH n'est pas AWS : ces contrôles ne s'appliquent pas.
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_s3_checksum            = true
+    use_path_style              = true
+  }
+}

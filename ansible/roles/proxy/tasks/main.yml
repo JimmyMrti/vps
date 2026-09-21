@@ -1,0 +1,134 @@
+---
+# ===========================================================================
+# Frontal HTTP.
+#
+# Caddy est le SEUL conteneur à publier des ports. C'est la règle qui tient
+# toute l'architecture : tant qu'elle est respectée, la surface exposée se
+# résume à 80, 443 et le port SSH, quel que soit le nombre de services.
+#
+# Ce rôle ne décrit AUCUN domaine. Il fournit la machine : le conteneur, les
+# options globales, les volumes, les variables d'environnement. Les domaines
+# eux-mêmes vivent un par fichier dans edge/sites/*.caddy, que le Caddyfile
+# importe. Le contrat est décrit dans edge/sites/README.md.
+#
+# Cadre TLS : ANSSI-BP-035, « Recommandations de sécurité relatives à TLS ».
+# ===========================================================================
+
+- name: Créer l'arborescence du frontal
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ proxy_dossier }}"
+    - "{{ proxy_dossier }}/sites"
+
+- name: Vérifier que les fichiers de site existent dans le dépôt
+  ansible.builtin.stat:
+    path: "{{ proxy_source_sites }}"
+  delegate_to: localhost
+  become: false
+  register: proxy_sites_source
+
+- name: Refuser de démarrer un frontal sans aucun domaine
+  ansible.builtin.assert:
+    that: proxy_sites_source.stat.exists
+    fail_msg: >-
+      {{ proxy_source_sites }} est introuvable. Le frontal ne sert que ce que
+      décrivent les fichiers edge/sites/*.caddy : sans eux, il démarrerait en
+      ne répondant à personne. Ces fichiers sont fournis par le fil des
+      services applicatifs.
+    quiet: true
+
+- name: Déployer les fichiers de site
+  ansible.builtin.copy:
+    src: "{{ proxy_source_sites }}/"
+    dest: "{{ proxy_dossier }}/sites/"
+    owner: root
+    group: root
+    mode: "0640"
+    # Un fichier retiré du dépôt doit disparaître du serveur : sinon un
+    # domaine supprimé continue d'être servi, et son certificat renouvelé.
+    directory_mode: "0750"
+  notify: Relancer le frontal
+
+- name: Retirer les fichiers de site absents du dépôt
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      cd "{{ proxy_dossier }}/sites"
+      attendus="{{ lookup('ansible.builtin.fileglob', proxy_source_sites + '/*') | map('basename') | join(' ') }}"
+      for present in *; do
+        [ -e "$present" ] || continue
+        echo " $attendus " | grep -q " $present " || { rm -f -- "$present"; echo "RETIRE:$present"; }
+      done
+    executable: /bin/bash
+  register: proxy_menage
+  changed_when: "'RETIRE:' in proxy_menage.stdout"
+  notify: Relancer le frontal
+
+- name: Déposer le Caddyfile du socle
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: "{{ proxy_dossier }}/Caddyfile"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Relancer le frontal
+
+- name: Déposer les variables d'environnement du frontal
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ proxy_dossier }}/.env"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Relancer le frontal
+
+- name: Déposer la pile du frontal
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ proxy_dossier }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Relancer le frontal
+
+# --- Contrôle avant démarrage -----------------------------------------------
+#
+# Une configuration acceptée n'est pas une configuration qui marche, mais une
+# configuration refusée est une coupure certaine. On valide avant.
+
+- name: Valider la configuration du frontal
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm
+      --env-file {{ proxy_dossier }}/.env
+      -v {{ proxy_dossier }}/Caddyfile:/etc/caddy/Caddyfile:ro
+      -v {{ proxy_dossier }}/sites:/etc/caddy/sites:ro
+      {{ proxy_image }} caddy validate --config /etc/caddy/Caddyfile
+  changed_when: false
+  register: proxy_validation
+
+- name: Démarrer le frontal
+  community.docker.docker_compose_v2:
+    project_src: "{{ proxy_dossier }}"
+    state: present
+    pull: missing
+
+- name: Attendre que le frontal réponde
+  ansible.builtin.wait_for:
+    port: 443
+    host: 127.0.0.1
+    timeout: 90
+
+- name: Rappeler le garde-fou des quotas de certificats
+  ansible.builtin.debug:
+    msg: >-
+      Le frontal sert les domaines décrits dans edge/sites/. Let's Encrypt
+      limite à cinq certificats identiques par semaine. Avant d'ajouter un
+      domaine, passez proxy_acme_essai à true pour éprouver la configuration
+      sur le serveur de test.
+  when: not (proxy_acme_essai | bool)

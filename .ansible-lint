@@ -1,0 +1,15 @@
+---
+profile: production
+
+exclude_paths:
+  - .github/
+  - ansible/collections/
+  - docs/
+
+skip_list:
+  # Les rôles sont internes au dépôt : le préfixe de variable par rôle est
+  # assuré par la convention de nommage, pas par la règle automatique.
+  - var-naming[no-role-prefix]
+
+warn_list:
+  - experimental

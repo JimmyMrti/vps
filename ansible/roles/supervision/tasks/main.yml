@@ -1,0 +1,88 @@
+---
+# ===========================================================================
+# Supervision.
+#
+# Volontairement minimale, et c'est un choix. Installer Prometheus et Grafana
+# sur ce VPS ajouterait deux services exposés, deux bases et plusieurs
+# gigaoctets de séries temporelles sur un disque de 75 Go — pour surveiller
+# trois services. Le coût dépasserait le bénéfice.
+#
+# Ce que fait ce rôle : des contrôles locaux qui écrivent dans le journal
+# système et laissent une trace exploitable. Ce qu'il ne fait pas : prévenir
+# quelqu'un. Un serveur ne peut pas signaler sa propre panne de façon fiable —
+# il est en panne. La sonde externe est donc indispensable et reste à
+# souscrire, voir docs/exploitation.md.
+# ===========================================================================
+
+- name: Créer l'arborescence de supervision
+  ansible.builtin.file:
+    path: "{{ supervision_dossier }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Déposer le contrôle d'état
+  ansible.builtin.template:
+    src: controle-etat.sh.j2
+    dest: "{{ supervision_dossier }}/controle-etat.sh"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Déposer l'unité de contrôle
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/controle-etat.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      [Unit]
+      Description=Controle d'etat du serveur et des services
+      After=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart={{ supervision_dossier }}/controle-etat.sh
+      # Le resultat part dans le journal, consultable par :
+      #   journalctl -u controle-etat.service -n 50
+      StandardOutput=journal
+      StandardError=journal
+      NoNewPrivileges=true
+      ProtectHome=true
+
+- name: Programmer le contrôle toutes les quinze minutes
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/controle-etat.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      [Unit]
+      Description=Controle d'etat periodique
+
+      [Timer]
+      OnBootSec=5min
+      OnUnitActiveSec=15min
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Activer le contrôle périodique
+  ansible.builtin.systemd_service:
+    name: controle-etat.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Rappeler ce que la supervision locale ne couvre pas
+  ansible.builtin.debug:
+    msg: >-
+      Les contrôles locaux écrivent dans le journal mais ne préviennent
+      personne : un serveur en panne ne peut pas signaler sa panne. Souscrivez
+      une sonde externe (UptimeRobot, Better Stack et d'autres ont une offre
+      gratuite suffisante) sur https://{{ domaine_principal }}/. Cinq minutes,
+      et c'est la seule chose qui vous réveillera.

@@ -1,0 +1,32 @@
+# Copier en terraform.tfvars, qui est ignoré par git.
+
+vps_nom_service = "vps00000000.ovh.net"
+
+# Laisser vide pour lire les IP via l'API OVH.
+ipv4 = ""
+ipv6 = ""
+
+reverse_dns        = "preventioncambriolage.fr"
+courriel_technique = "contact@preventioncambriolage.fr"
+
+# Pendant une bascule, descendre à 300 quelques heures avant.
+ttl = 3600
+
+# Un domaine par service. Les deux suivants restent à acheter : tant qu'ils
+# ne sont pas là, le service correspondant tourne sans être joignable
+# publiquement, ce qui est le bon état par défaut.
+domaines = {
+  "preventioncambriolage.fr" = {
+    commentaire = "Site statique déjà en production"
+    www         = false
+  }
+
+  # "exemple-automatisation.fr" = {
+  #   commentaire = "n8n — interface fermee par liste d'adresses"
+  # }
+
+  # "exemple-annuaire.fr" = {
+  #   commentaire = "Annuaire artisans enrichi"
+  #   www         = true
+  # }
+}

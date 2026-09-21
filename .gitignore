@@ -1,0 +1,29 @@
+# --- Secrets : rien de déchiffré ne doit entrer dans le dépôt ---------------
+*.vault-password
+.vault-pass
+vault-password.txt
+*.pem
+*.key
+!ansible/roles/*/files/*.key.example
+.env
+
+# --- Terraform --------------------------------------------------------------
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+terraform.tfvars
+backend.tf
+
+# --- Ansible ----------------------------------------------------------------
+*.retry
+ansible/collections/
+ansible/roles/external/
+fact_cache/
+
+# --- Divers -----------------------------------------------------------------
+.DS_Store
+*.swp
+__pycache__/

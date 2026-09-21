@@ -1,0 +1,53 @@
+---
+# ===========================================================================
+# Mise à jour d'un service en mode « pull ».
+#
+# Rôle générique, appelé avec maj_nom / maj_dossier / maj_image.
+#
+# C'est la généralisation du maj.sh mono-service de l'existant. Le modèle est
+# conservé tel quel parce qu'il est bon : le serveur VA CHERCHER ses mises à
+# jour. GitHub n'a donc aucun accès à la machine, aucun port entrant n'est
+# ouvert pour le déploiement, aucune clé SSH n'est confiée à un tiers. Un
+# compte GitHub compromis permet de publier une mauvaise image, pas de prendre
+# la main sur le serveur.
+# ===========================================================================
+
+- name: Vérifier que les paramètres du rôle sont fournis
+  ansible.builtin.assert:
+    that:
+      - maj_nom is defined
+      - maj_dossier is defined
+      - maj_image is defined
+    fail_msg: "maj_service attend maj_nom, maj_dossier et maj_image."
+    quiet: true
+
+- name: Déposer le script de mise à jour de {{ maj_nom }}
+  ansible.builtin.template:
+    src: maj.sh.j2
+    dest: "{{ maj_dossier }}/maj.sh"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Déposer l'unité de mise à jour de {{ maj_nom }}
+  ansible.builtin.template:
+    src: maj.service.j2
+    dest: "/etc/systemd/system/maj-{{ maj_nom }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Déposer le minuteur de {{ maj_nom }}
+  ansible.builtin.template:
+    src: maj.timer.j2
+    dest: "/etc/systemd/system/maj-{{ maj_nom }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Activer le minuteur de {{ maj_nom }}
+  ansible.builtin.systemd_service:
+    name: "maj-{{ maj_nom }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true

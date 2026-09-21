@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+
+[Journal]
+# « persistent » écrit dans /var/log/journal, qui survit au redémarrage.
+# C'est le réglage qui rend la journalisation utile : sans lui, le journal
+# disparaît exactement au moment où on en aurait besoin.
+Storage=persistent
+
+# Rendre l'effacement d'une ligne détectable. La signature ne protège pas
+# contre la suppression du fichier entier, mais elle interdit la retouche
+# discrète d'une entrée gênante.
+Seal=yes
+
+SystemMaxUse={{ journal_taille_maximale }}
+SystemKeepFree=1G
+SystemMaxFileSize=64M
+MaxRetentionSec={{ journal_retention }}
+MaxFileSec=1week
+
+# Un incident produit des milliers de lignes par seconde. Sans limite, le
+# journal se remplit de la même ligne et pousse dehors tout le contexte utile.
+RateLimitIntervalSec=30s
+RateLimitBurst=10000
+
+# Forcer la synchronisation rapide : les dernières lignes avant un arrêt
+# brutal sont souvent les plus intéressantes.
+SyncIntervalSec=1m
+
+Compress=yes
+ForwardToSyslog=no

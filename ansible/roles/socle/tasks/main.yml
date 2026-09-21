@@ -1,0 +1,164 @@
+---
+# ===========================================================================
+# Socle système.
+#
+# Cadre : ANSSI-BP-028 « Recommandations de configuration d'un système
+# GNU/Linux », v2.0. Le détail mesure par mesure est dans
+# docs/conformite-anssi.md.
+# ===========================================================================
+
+# --- Identité et heure ------------------------------------------------------
+# L'heure juste n'est pas un confort : sans elle, les journaux de deux machines
+# ne se recoupent pas, et la validation d'un certificat TLS peut échouer.
+
+- name: Fixer le nom d'hôte
+  ansible.builtin.hostname:
+    name: "{{ systeme_nom_hote }}"
+
+- name: Déclarer le nom d'hôte dans /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ systeme_nom_hote }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Fixer le fuseau horaire
+  community.general.timezone:
+    name: "{{ systeme_fuseau_horaire }}"
+
+- name: Installer les paquets utiles
+  ansible.builtin.apt:
+    name: "{{ socle_paquets_utiles }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Activer la synchronisation de l'heure
+  ansible.builtin.systemd_service:
+    name: chrony
+    enabled: true
+    state: started
+
+# --- Réduction de la surface ------------------------------------------------
+
+- name: Retirer les paquets sans usage sur ce serveur
+  ansible.builtin.apt:
+    name: "{{ socle_paquets_indesirables }}"
+    state: absent
+    purge: true
+    autoremove: true
+
+- name: Interdire le chargement des modules noyau inutilisés
+  ansible.builtin.template:
+    src: modules-interdits.conf.j2
+    dest: /etc/modprobe.d/99-modules-interdits.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reconstruire l'initramfs
+
+# --- Paramètres noyau -------------------------------------------------------
+
+- name: Appliquer les paramètres noyau de durcissement
+  ansible.builtin.template:
+    src: sysctl-durcissement.conf.j2
+    dest: /etc/sysctl.d/99-durcissement.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger sysctl
+
+# --- Options de montage -----------------------------------------------------
+#
+# Le partitionnement d'un VPS OVH est figé à l'installation : on n'obtient pas
+# de partitions séparées pour /var/log ou /home après coup sans réinstaller.
+# Ce qui reste accessible, et qui porte l'essentiel du gain, ce sont les
+# options des systèmes de fichiers en mémoire, montés à chaud.
+
+- name: Durcir /dev/shm
+  ansible.posix.mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: "rw,nosuid,nodev,noexec,relatime"
+    state: mounted
+
+- name: Durcir /tmp par une unité systemd dédiée
+  ansible.builtin.template:
+    src: tmp.mount.j2
+    dest: /etc/systemd/system/tmp.mount
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger systemd
+
+- name: Activer le montage durci de /tmp
+  ansible.builtin.systemd_service:
+    name: tmp.mount
+    enabled: true
+    state: started
+
+# --- Contrôle d'accès obligatoire -------------------------------------------
+#
+# Ubuntu embarque AppArmor et l'active par défaut. On vérifie qu'il l'est
+# réellement plutôt que de le supposer : un profil désactivé ne se voit pas.
+
+- name: Activer AppArmor
+  ansible.builtin.systemd_service:
+    name: apparmor
+    enabled: true
+    state: started
+
+- name: Relever les profils AppArmor chargés
+  ansible.builtin.command: aa-status --json
+  changed_when: false
+  failed_when: false
+  register: socle_apparmor
+
+- name: Signaler si AppArmor ne charge aucun profil
+  ansible.builtin.debug:
+    msg: >-
+      AppArmor ne rapporte aucun profil en mode « enforce ». Le contrôle
+      d'accès obligatoire est donc sans effet. À examiner.
+  when:
+    - socle_apparmor.rc == 0
+    - "'\"enforce\"' not in socle_apparmor.stdout"
+
+# --- Droits par défaut ------------------------------------------------------
+
+- name: Poser un umask restrictif pour les sessions
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^UMASK\s'
+    line: "UMASK 027"
+    owner: root
+    group: root
+    mode: "0644"
+
+# Retirer les droits du monde sur /usr/sbin et /sbin a été envisagé puis
+# écarté : plusieurs paquets Debian appellent ces chemins depuis des scripts
+# de post-installation tournant sans privilèges, et la mise à jour échoue
+# alors sans message clair. Le gain est faible — ces binaires ne sont de
+# toute façon utilisables que par root — et le coût se paie un soir de
+# mise à jour.
+
+# --- Chargeur de démarrage --------------------------------------------------
+#
+# Sur un VPS, l'accès physique passe par la console KVM de l'espace client
+# OVH. Protéger GRUB par mot de passe déplace le problème vers le compte OVH
+# sans le supprimer, et fait courir le risque d'un serveur qui ne redémarre
+# plus seul après une mise à jour du noyau — ce qui, avec les redémarrages
+# automatiques d'unattended-upgrades, serait une panne silencieuse.
+# Décision : non retenu. Voir docs/conformite-anssi.md, « Écarts assumés ».
+
+- name: Vérifier que le compte root n'a pas de mot de passe utilisable
+  ansible.builtin.command: passwd --status root
+  changed_when: false
+  register: socle_root_passwd
+
+- name: Verrouiller le mot de passe de root
+  ansible.builtin.command: passwd --lock root
+  when: "' P ' in socle_root_passwd.stdout"
+  changed_when: true

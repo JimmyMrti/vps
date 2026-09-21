@@ -1,0 +1,3 @@
+---
+site_dossier: "{{ vps_racine }}/site"
+site_intervalle_maj: "10min"
