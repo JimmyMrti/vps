@@ -16,7 +16,8 @@ ce dépôt.
 | [`annuaire.md`](annuaire.md) | contrat d'exécution de l'application, base de données, recherche |
 | [`dimensionnement.md`](dimensionnement.md) | mémoire, CPU, disque, limites par conteneur |
 | [`sauvegardes.md`](sauvegardes.md) | quoi, où, à quelle fréquence, et comment on vérifie |
-| [`donnees-personnelles.md`](donnees-personnelles.md) | base légale, durées de conservation, règles de diffusion |
+| [`donnees-personnelles.md`](donnees-personnelles.md) | ce qui entre dans la base et ce qui n'y entre pas, base légale, provenance, droits des personnes |
+| [`registre-traitements.md`](registre-traitements.md) | le registre, à relire à chaque évolution fonctionnelle |
 
 ---
 

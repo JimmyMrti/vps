@@ -12,12 +12,14 @@ traitement : l'éditeur du site. Coordonnées de contact à compléter.
 | **Finalité** | publier un annuaire d'artisans permettant à un particulier de trouver un professionnel |
 | **Personnes concernées** | artisans, y compris entrepreneurs individuels |
 | **Données** | raison sociale, SIREN/SIRET, adresse de l'établissement, activité (NAF), qualifications, coordonnées professionnelles |
-| **Source** | répertoire Sirene (INSEE), bases de qualification publiques, déclaration de l'artisan |
+| **Source** | répertoire Sirene (INSEE), répertoire RGE (ADEME), annuaire des entreprises, déclaration de l'artisan. **Aucune autre** : ni aspiration d'annuaires tiers, ni réseaux sociaux, ni recomposition de coordonnées |
 | **Base légale** | intérêt légitime — information du public sur une offre professionnelle |
 | **Conservation** | tant que l'établissement est actif au répertoire, puis 12 mois |
 | **Destinataires** | public (site), hébergeur |
 | **Transferts hors UE** | aucun |
-| **Mesures** | filtrage `statutDiffusionUniteLegale` à l'import, liste d'exclusion permanente, base sur réseau interne |
+| **Information des personnes** | article 14 : courriel à la création de la fiche quand une adresse professionnelle est connue, sinon mention permanente sur la fiche avec l'origine des données et le lien d'opposition. Recours à l'exemption pour efforts disproportionnés motivé par écrit |
+| **Mesures** | filtrage `statutDiffusionUniteLegale` à l'import ; provenance enregistrée champ par champ (source, base légale, date) ; liste d'exclusion permanente consultée à chaque import ; base sur réseau interne sans route vers Internet |
+| **AIPD** | requise — au moins deux critères CNIL réunis (collecte à grande échelle, croisement de jeux de données), un troisième si le site note ou classe les artisans. À réaliser **avant** le lancement public |
 
 ## 2 — Comptes artisans (revendication de fiche)
 

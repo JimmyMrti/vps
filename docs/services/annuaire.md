@@ -69,26 +69,27 @@ Extensions activées au premier démarrage
 
 ---
 
-## Sources de données et statut de diffusion
+## Sources de données
 
 Un annuaire d'artisans se construit à partir de bases publiques — répertoire
 Sirene de l'INSEE, qualifications RGE, annuaire des entreprises. **Ces données
-sont publiques mais pas librement rediffusables en bloc.**
+sont publiques mais pas librement rediffusables en bloc**, et l'agrégation en
+fiches consultables change leur nature : c'est un profil qui n'existait nulle
+part avant.
 
-Le point dur, concret et vérifiable : le répertoire Sirene porte un indicateur
-`statutDiffusionUniteLegale`. Une unité légale marquée `P` est **partiellement
-diffusible** — typiquement un entrepreneur individuel qui s'est opposé à la
-diffusion. Pour celles-ci, **le nom, le prénom et l'adresse ne doivent pas être
-publiés**. Rediffuser une base Sirene sans filtrer ce champ, c'est publier les
-coordonnées personnelles de gens qui ont explicitement demandé le contraire.
+La règle de collecte, les sources admises, celles qui ne le sont pas, et ce
+qu'il faut enregistrer pour pouvoir répondre à « d'où tenez-vous cela ? » sont
+dans [`donnees-personnelles.md`](donnees-personnelles.md). Trois points ont des
+conséquences directes sur le schéma, donc sur la première migration :
 
-La règle tenue ici : **le filtre s'applique à l'import, pas à l'affichage.** Une
-donnée non diffusible n'entre pas dans la base publique du site. Un filtre au
-moment de l'affichage finit toujours par être contourné par une API, un export
-ou un flux oublié.
-
-Le détail des obligations est dans
-[`donnees-personnelles.md`](donnees-personnelles.md).
+- une table **`provenance`**, qui note pour chaque champ d'où il vient, à quel
+  titre et depuis quand. À prévoir dès la première version : rétroactivement,
+  l'information est perdue ;
+- une table **`exclusions`**, consultée à chaque import et jamais purgée par
+  lui, sans quoi le prochain import republie ce qu'on vient de retirer ;
+- le filtre **`statutDiffusionUniteLegale`** appliqué à l'import et non à
+  l'affichage — un filtre d'affichage est contourné tôt ou tard par un export,
+  un flux ou un cache.
 
 ---
 
