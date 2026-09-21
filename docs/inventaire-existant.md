@@ -259,8 +259,9 @@ Ce qui casse si on l'ignore.
    `read:packages` — et root doit pouvoir le lire (voir §5).
 10. **Ressources.** Le site consomme très peu : deux conteneurs Alpine, du
     statique. n8n (Node + Postgres + workers) et l'annuaire (application +
-    base) changent complètement le profil. Le dimensionnement du VPS est une
-    question ouverte, voir §9.
+    base) changent complètement le profil. La machine a de la marge — 4 vCores
+    et 8 Go — mais 75 Go de disque se remplissent plus vite qu'on ne croit.
+    Voir §9.
 
 ---
 
@@ -281,30 +282,91 @@ Ce qui casse si on l'ignore.
 
 ---
 
-## 9. Ce qu'il faut demander à Jim
+## 9. La machine et le contexte, tels que Jim les a donnés
 
-Rien de tout cela n'est dans le dépôt :
+Répondu le 21 septembre 2026.
 
-1. **Caractéristiques du VPS** : gamme OVH, vCPU, RAM, disque, version d'Ubuntu,
-   IPv6 disponible ou non. Détermine si n8n + annuaire + site tiennent sur la
-   machine actuelle.
-2. **Où est géré le DNS** de `preventioncambriolage.fr` (OVH ou ailleurs), et
-   s'il existe un accès API pour automatiser les enregistrements.
-3. **Noms retenus** pour n8n et pour l'annuaire : sous-domaines de
-   `preventioncambriolage.fr`, ou domaines distincts ? La réponse conditionne
-   le découpage des certificats, la CSP et l'isolation.
-4. **État réel de la production** : `PUBLIC_INDEXABLE` est-il à `1` ? Le
-   `www` est-il déclaré ? Y a-t-il déjà des choses installées sur le VPS hors
-   de cette pile ?
-5. **Nature de l'annuaire artisans** : volumétrie attendue, base de données
-   souhaitée, données à caractère personnel d'artisans (donc RGPD, donc
-   sauvegarde et durée de conservation).
-6. **n8n** : usage personnel ou exposé à des tiers, besoin SMTP, et jusqu'où on
-   accepte qu'il parle à l'extérieur.
-7. **Sauvegarde** : option Backup OVH, snapshot, ou sauvegarde applicative vers
-   un stockage objet ?
+### La machine
+
+**VPS 2 chez OVH : 4 vCores, 8 Go de RAM, 75 Go de stockage, Ubuntu 26.04.**
+
+C'est confortable pour les trois services. Le site statique ne consomme
+quasiment rien — deux conteneurs Alpine servant des fichiers. n8n avec sa base
+Postgres demande de l'ordre du gigaoctet, l'annuaire et sa base autant ou un peu
+plus selon la technologie retenue. La marge est réelle.
+
+**Le point de tension sera le disque, pas la mémoire.** 75 Go se remplissent
+avec les images Docker successives, la base de l'annuaire, ses médias, et
+surtout l'historique d'exécution de n8n, qui grossit indéfiniment si on ne le
+purge pas (n8n sait le faire, le réglage est à relever dans sa documentation).
+La purge des images de plus d'une semaine est déjà faite par `maj.sh`, et la
+rotation des logs est déjà en place sur tous les services : deux réflexes à
+conserver et à étendre aux nouvelles piles.
+
+**Ubuntu 26.04 — un point à vérifier avant de dérouler quoi que ce soit.** La
+procédure d'origine installe Docker depuis le dépôt officiel, en dérivant le nom
+de code de la distribution (`$VERSION_CODENAME`). Docker publie parfois avec du
+retard pour une version fraîchement sortie. Si le dépôt ne répond pas pour
+26.04, il faut épingler explicitement le nom de code de la version précédente
+plutôt que de se rabattre sur le paquet d'Ubuntu, qui est en retard.
+
+### Le DNS
+
+**Il est chez OVH**, comme le VPS. Deux conséquences directes :
+
+1. Les enregistrements sont **automatisables** via l'API OVH, avec un jeton à
+   portée restreinte (`/domain/zone/*`). Le DNS peut donc entrer dans l'infra as
+   code au lieu d'être cliqué dans une interface.
+2. Le challenge ACME **DNS-01 devient possible**, là où l'existant fait du
+   HTTP-01. Il permet des certificats *wildcard* et supprime le besoin de garder
+   le port 80 joignable pour chaque renouvellement.
+
+   Le prix à payer : l'image officielle de Caddy ne contient pas le module DNS
+   d'OVH. Il faut construire une image avec `xcaddy`, donc maintenir une image
+   de plus et suivre ses mises à jour de sécurité. **Arbitrage pour le fil
+   socle**, pas une évidence : HTTP-01 fonctionne déjà, et le port 80 doit de
+   toute façon rester ouvert pour la redirection.
+
+### Les noms de domaine
+
+**Rien n'est arrêté** pour n8n ni pour l'annuaire : page blanche, aucune
+contrainte hors la sécurité et le site déjà en place. Deux éléments relevés dans
+l'existant pèsent quand même sur le choix.
+
+**L'en-tête HSTS actuel porte `includeSubDomains; preload`.** Tout sous-domaine
+de `preventioncambriolage.fr` devra donc être servi en HTTPS, sans exception et
+sans période de transition — un navigateur qui a vu l'en-tête refusera le HTTP
+sur `n8n.preventioncambriolage.fr` avant même d'avoir essayé. Ce n'est pas
+bloquant, tout passera par Caddy de toute façon, mais cela interdit définitivement
+le moindre service en clair, y compris temporaire, y compris pour un essai.
+*À vérifier :* le domaine est-il réellement soumis à la liste de préchargement
+des navigateurs, ou l'en-tête porte-t-il seulement la directive ? Dans le
+premier cas, la décision est irréversible à l'échelle de plusieurs mois.
+
+**L'anonymat de l'éditeur est un choix assumé et documenté** dans les mentions
+légales. Un sous-domaine apparaît en clair dans les journaux de transparence des
+certificats, publics et indexés. `n8n.preventioncambriolage.fr` annoncerait donc
+à qui regarde que ce site a un serveur d'automatisation. Ce n'est pas une faille,
+mais c'est une information publiée. Un domaine distinct pour l'outillage interne
+évite la question ; pour l'annuaire, qui est un produit à part avec ses propres
+besoins de CSP et de cookies, un domaine séparé se défend de toute façon.
 
 ---
+
+## 9 bis. Ce qui reste à décider
+
+1. **État réel de la production** : `PUBLIC_INDEXABLE` est-il à `1` ? Le `www`
+   est-il déclaré au DNS ? Y a-t-il déjà quelque chose d'installé sur le VPS en
+   dehors de cette pile ?
+2. **Nature de l'annuaire artisans** : volumétrie attendue, technologie, base de
+   données souhaitée, et données à caractère personnel d'artisans — donc RGPD,
+   donc durée de conservation et sauvegarde.
+3. **n8n** : usage strictement personnel ou exposé à des tiers ? Besoin d'un
+   SMTP ? Jusqu'où accepte-t-on qu'il parle à l'extérieur ?
+4. **Sauvegarde** : option Backup d'OVH, snapshot, ou sauvegarde applicative
+   vers un stockage objet ? C'est le seul point où l'existant ne donne aucune
+   réponse réutilisable, puisqu'il n'avait rien à sauvegarder.
+
 
 ## 10. Fichiers de référence dans le dépôt d'origine
 
