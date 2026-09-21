@@ -66,9 +66,24 @@ import /etc/caddy/sites/*.caddy
 # Tout domaine non déclaré ci-dessus
 # ---------------------------------------------------------------------------
 #
-# Sans ce bloc, Caddy tenterait d'obtenir un certificat pour n'importe quel
-# nom pointant vers cette IP — y compris un nom qu'un tiers ferait pointer
-# dessus — et se ferait bloquer par le quota Let's Encrypt.
+# Sans ce bloc, Caddy tenterait d'obtenir un certificat de Let's Encrypt pour
+# n'importe quel nom pointant vers cette IP — y compris un nom qu'un tiers
+# ferait pointer dessus à notre insu — et se ferait bloquer par le quota.
+# `tls internal` fabrique un certificat local à la place : rien n'est demandé
+# à l'extérieur.
+#
+# NE PAS LE RETIRER en croyant qu'il gêne le renouvellement des certificats.
+# Il ne le gêne pas, et c'est documenté : Caddy insère ses propres routes —
+# la redirection HTTP vers HTTPS et la réponse au défi ACME — APRÈS les blocs
+# qui portent un nom d'hôte mais AVANT un bloc fourre-tout comme celui-ci.
+# Les défis pour les domaines déclarés plus haut sont donc traités avant
+# d'arriver ici.
+#   https://caddyserver.com/docs/automatic-https
+#
+# Cette vérification a été faite sur la documentation, pas sur un
+# renouvellement réel. Le garde-fou de terrain est ailleurs : le rôle
+# supervision signale tout certificat qui descend sous vingt jours, ce qui
+# rend visible un renouvellement en échec bien avant l'expiration.
 :80, :443 {
 	tls internal
 	respond "Hote inconnu" 421
