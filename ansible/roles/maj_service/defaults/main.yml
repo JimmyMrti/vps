@@ -1,3 +1,18 @@
 ---
 maj_intervalle: "10min"
 maj_description: "Mise a jour automatique d'un service"
+
+# Commande à jouer entre le téléchargement de l'image et le démarrage du code
+# neuf. Vide par défaut.
+#
+# Sans elle, ce rôle n'est sûr que pour un service SANS ÉTAT : il enchaîne
+# `pull` puis `up -d`, ce qui, pour un service qui a une base, démarre du code
+# neuf sur un schéma resté en arrière.
+#
+# Exemple, pour une pile dont les migrations vivent dans un profil séparé :
+#
+#   maj_commande_avant: "docker compose --profile migration run --rm migration"
+#
+# Si la commande échoue, le script s'arrête avant le démarrage : l'ancienne
+# version continue de tourner sur une base intacte.
+maj_commande_avant: ""

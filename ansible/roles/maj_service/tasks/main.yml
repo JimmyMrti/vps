@@ -4,6 +4,10 @@
 #
 # Rôle générique, appelé avec maj_nom / maj_dossier / maj_image.
 #
+# Sûr tel quel pour un service SANS ÉTAT. Pour un service qui a une base,
+# renseigner `maj_commande_avant` (migrations), sinon le code neuf démarrera
+# sur un schéma resté en arrière.
+#
 # C'est la généralisation du maj.sh mono-service de l'existant. Le modèle est
 # conservé tel quel parce qu'il est bon : le serveur VA CHERCHER ses mises à
 # jour. GitHub n'a donc aucun accès à la machine, aucun port entrant n'est

@@ -35,6 +35,21 @@ echo "Nouvelle image detectee pour {{ maj_nom }}."
 echo "  avant : $avant"
 echo "  apres : $apres"
 
+{% if maj_commande_avant | default('') | trim %}
+# --- Etape prealable au demarrage du code neuf ----------------------------
+#
+# Joue ici, entre le telechargement et le demarrage : pour un service qui a
+# une base, demarrer le code neuf sur un schema reste en arriere est une
+# panne, parfois une corruption.
+#
+# `set -e` est actif : si cette etape echoue, le script s'arrete AVANT le
+# `up -d`. L'ancienne version continue alors de tourner sur une base intacte,
+# et l'unite systemd apparait en echec — ce qui est le bon comportement.
+echo "Etape prealable..."
+{{ maj_commande_avant }}
+echo "Etape prealable terminee."
+
+{% endif %}
 compose up -d --remove-orphans
 
 echo "{{ maj_nom }} a jour."
