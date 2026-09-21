@@ -14,5 +14,8 @@ durci d'après les recommandations de l'ANSSI.
 | Document | Contenu |
 |---|---|
 | [`docs/inventaire-existant.md`](docs/inventaire-existant.md) | ce qui tourne aujourd'hui pour preventioncambriolage.fr : stack, build, déploiement, domaine, TLS, secrets, posture de sécurité, contraintes de migration |
+| [`docs/services/`](docs/services/) | l'accueil de n8n et de l'annuaire artisans : cloisonnement, bases de données, dimensionnement, exposition, sauvegardes, données personnelles |
+| [`services/`](services/) | les piles Docker Compose des services applicatifs, leurs sauvegardes et leurs unités systemd |
+| [`edge/sites/`](edge/sites/) | un fichier de configuration Caddy par domaine, importés par le frontal mutualisé |
 
-Le socle infra as code et l'ajout des deux nouveaux services suivent.
+Le socle infra as code suit.

@@ -1,0 +1,35 @@
+# Extraits communs. Lu avant les autres fichiers grâce au préfixe numérique.
+
+# En-têtes de sécurité applicables à tout site servi par ce frontal.
+#
+# HSTS est posé ici, au point de terminaison TLS, et pas dans les conteneurs
+# applicatifs : eux ne savent pas si la requête d'origine était en HTTPS.
+(entetes_securite) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		# La version du serveur ne renseigne que les attaquants.
+		-Server
+	}
+}
+
+# Journal d'accès au format JSON, dans un fichier.
+#
+# C'est ce journal qui alimente fail2ban : sans format structuré, un filtre
+# d'expressions régulières sur du texte libre casse à la première évolution de
+# Caddy. Voir services/_commun/fail2ban/.
+#
+# Les adresses IP sont des données personnelles : la rotation ci-dessous tient
+# la durée de conservation par construction plutôt que par discipline.
+(journal_acces) {
+	log {
+		output file /var/log/caddy/acces.log {
+			roll_size 10mb
+			roll_keep 10
+			roll_keep_for 4320h
+		}
+		format json
+	}
+}

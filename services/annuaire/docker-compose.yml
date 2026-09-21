@@ -1,0 +1,188 @@
+# Annuaire artisans enrichi.
+#
+# Déployé dans /opt/vps/services/annuaire/. L'application n'existe pas encore :
+# ce fichier fixe le contrat qu'elle devra respecter pour être hébergeable ici
+# sans rouvrir le sujet de la sécurité. Voir docs/services/annuaire.md.
+#
+#   docker compose --profile migration run --rm migration   # d'abord
+#   docker compose up -d                                    # ensuite
+
+x-journalisation: &journalisation
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ---------------------------------------------------------------------------
+  # L'application. HTTP simple sur 8080, aucun port publié, aucun certificat :
+  # la terminaison TLS est au frontal.
+  # ---------------------------------------------------------------------------
+  annuaire:
+    image: ${ANNUAIRE_IMAGE:?ANNUAIRE_IMAGE est requis, avec une version explicite}
+    pull_policy: always
+    restart: unless-stopped
+
+    env_file:
+      - .env
+      # DATABASE_URL et les autres secrets applicatifs. 0600 root:root.
+      - /opt/vps/secrets/annuaire/annuaire.env
+
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      SITE_URL: https://${ANNUAIRE_DOMAIN:?ANNUAIRE_DOMAIN est requis}
+      # 0 = robots.txt interdit tout et chaque page porte un noindex. Même
+      # mécanique que le site statique : on n'ouvre à l'indexation qu'au
+      # lancement, volontairement.
+      ANNUAIRE_INDEXABLE: ${ANNUAIRE_INDEXABLE:-0}
+      TZ: Europe/Paris
+
+    volumes:
+      # Fichiers déposés par les artisans (photos, documents). Le seul état de
+      # l'application hors base de données, donc le seul à sauvegarder.
+      - annuaire_fichiers:/data/fichiers
+
+    networks:
+      - edge
+      - annuaire_interne
+
+    depends_on:
+      annuaire-db:
+        condition: service_healthy
+
+    # L'application n'écrit que dans son volume : le reste du système de
+    # fichiers peut être en lecture seule. Si l'image a besoin d'écrire
+    # ailleurs (cache de rendu, sockets), l'ajouter en tmpfs plutôt que de
+    # retirer cette ligne.
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          memory: 256M
+
+    logging: *journalisation
+
+  # ---------------------------------------------------------------------------
+  # Migrations de schéma — exécutées à la main, avant le démarrage.
+  #
+  # Volontairement séparées : une migration lancée au démarrage du conteneur
+  # applicatif rend impossible un déploiement qu'on veut annuler, et deux
+  # conteneurs qui migrent en même temps corrompent la base.
+  # ---------------------------------------------------------------------------
+  migration:
+    profiles: ["migration"]
+    image: ${ANNUAIRE_IMAGE:?}
+    command: ${ANNUAIRE_MIGRATION_CMD:-npm run migrate}
+    restart: "no"
+    env_file:
+      - .env
+      - /opt/vps/secrets/annuaire/annuaire.env
+    networks:
+      - annuaire_interne
+    depends_on:
+      annuaire-db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *journalisation
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL avec PostGIS. Instance dédiée : la base de l'annuaire contient
+  # des données de personnes, celle de n8n des identifiants d'API. Elles n'ont
+  # rien à faire dans le même processus.
+  # ---------------------------------------------------------------------------
+  annuaire-db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: annuaire
+      POSTGRES_USER: annuaire
+      POSTGRES_PASSWORD_FILE: /run/secrets/mdp_postgres
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+      TZ: Europe/Paris
+
+    secrets:
+      - mdp_postgres
+
+    volumes:
+      - annuaire_db:/var/lib/postgresql/data
+      # Joué une seule fois, au tout premier démarrage, quand le répertoire de
+      # données est vide. Modifier ces fichiers ensuite n'a aucun effet.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+
+    networks:
+      - annuaire_interne
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U annuaire -d annuaire"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+    # Réglages tenant dans la limite mémoire ci-dessous. shared_buffers à un
+    # quart de la limite, effective_cache_size à ce que le noyau garde
+    # réellement en cache : PostgreSQL choisit ses plans d'après cette valeur.
+    command: >
+      postgres
+        -c shared_buffers=384MB
+        -c effective_cache_size=1GB
+        -c work_mem=16MB
+        -c maintenance_work_mem=128MB
+        -c max_connections=50
+        -c log_min_duration_statement=1000
+
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+        reservations:
+          memory: 512M
+
+    logging: *journalisation
+
+secrets:
+  mdp_postgres:
+    file: /opt/vps/secrets/annuaire/mdp_postgres
+
+volumes:
+  annuaire_fichiers:
+  annuaire_db:
+
+networks:
+  edge:
+    external: true
+  annuaire_interne:
+    internal: true

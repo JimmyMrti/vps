@@ -1,0 +1,26 @@
+# preventioncambriolage.fr — site statique déjà en production.
+#
+# Ce fichier remplace le Caddy embarqué dans la pile du site. La bascule est
+# décrite dans docs/services/README.md : tant que l'ancien Caddy tient les
+# ports 80 et 443, le frontal mutualisé ne démarre pas.
+#
+# Le conteneur `web` continue d'écouter en HTTP simple sur 8080, sans port
+# publié, exactement comme aujourd'hui. Rien ne change dans l'image du site.
+
+{$SITE_DOMAIN:preventioncambriolage.fr} {
+	import entetes_securite
+	import journal_acces
+
+	encode zstd gzip
+
+	# Caddy transmet X-Forwarded-Proto et X-Forwarded-For : c'est sur eux que
+	# nginx s'appuie pour émettre HSTS et connaître l'IP d'origine.
+	reverse_proxy web:8080
+}
+
+# Le domaine avec www doit servir le même site sans dupliquer le contenu aux
+# yeux des moteurs. À décommenter si l'enregistrement DNS www existe.
+#
+# www.{$SITE_DOMAIN:preventioncambriolage.fr} {
+# 	redir https://{$SITE_DOMAIN:preventioncambriolage.fr}{uri} permanent
+# }

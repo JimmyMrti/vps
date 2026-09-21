@@ -1,0 +1,15 @@
+[Unit]
+Description=Surveille l'occupation du disque
+Documentation=https://github.com/jimmymrti/vps
+OnFailure=alerte@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vps/services/_commun/surveillance-disque.sh
+Environment=SEUIL_DISQUE=80
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true

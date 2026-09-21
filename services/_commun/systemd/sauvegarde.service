@@ -1,0 +1,28 @@
+[Unit]
+Description=Sauvegarde quotidienne des bases et des volumes
+Documentation=https://github.com/jimmymrti/vps
+After=docker.service network-online.target
+Requires=docker.service
+OnFailure=alerte@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vps/services/_commun/sauvegarde.sh
+TimeoutStartSec=3600
+
+# Identifiants restic et S3. Fichier 0600 root:root, hors depot.
+# Le jeu d'identifiants present ici n'a PAS le droit de supprimer : un
+# rancongiciel qui prend la machine ne peut pas effacer les sauvegardes.
+EnvironmentFile=/opt/vps/secrets/sauvegarde/restic.env
+
+# Durcissement. Ce service a besoin de Docker, du spool et des secrets, rien
+# d'autre.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/sauvegardes
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

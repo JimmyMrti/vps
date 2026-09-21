@@ -1,0 +1,34 @@
+# Annuaire artisans enrichi.
+#
+# Tant qu'ANNUAIRE_DOMAIN n'est pas renseigné, le nom par défaut est en
+# .localhost : Caddy fabrique un certificat interne, ne demande rien à Let's
+# Encrypt, et le site n'existe pas publiquement.
+#
+# Il n'y a volontairement pas de préproduction sur ce VPS : elle vivrait à
+# côté des données réelles, et doublerait la consommation mémoire pour un
+# service qu'une pile locale rend déjà (c'est ce que fait le site statique
+# avec `make dev`). Voir docs/services/annuaire.md.
+
+{$ANNUAIRE_DOMAIN:annuaire.localhost} {
+	import entetes_securite
+	import journal_acces
+
+	encode zstd gzip
+
+	# À resserrer quand les dépendances du site seront connues. Une politique
+	# large mise en place « provisoirement » ne se resserre jamais ; celle-ci
+	# refuse déjà l'essentiel : scripts en ligne, mise en cadre, plugins.
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+
+	# --- Avant l'ouverture publique -----------------------------------------
+	# Décommenter pour réserver le site à quelques adresses le temps de la mise
+	# au point, et le refermer à l'indexation. Le contrôle d'indexation côté
+	# application (ANNUAIRE_INDEXABLE) reste le garde-fou principal : ces deux
+	# lignes ne servent que pendant la phase de lancement.
+	#
+	# @hors_liste not remote_ip {$ANNUAIRE_IP_PRIVE:192.0.2.1}
+	# respond @hors_liste 404
+	# header X-Robots-Tag "noindex, nofollow"
+
+	reverse_proxy annuaire:8080
+}
