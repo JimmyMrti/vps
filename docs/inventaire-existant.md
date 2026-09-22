@@ -425,9 +425,14 @@ Le domaine public ne laisse donc passer que `/webhook/*` et
 `/webhook-waiting/*`, et répond 404 à tout le reste. L'éditeur, son API `rest`
 et ses fichiers statiques ne sont joignables que par le tunnel.
 
-**La règle doit être écrite en liste blanche**, pas en liste noire : on autorise
-deux préfixes et on refuse le reste. Une liste noire oublie toujours un chemin,
-et l'oubli ici expose l'éditeur.
+**La règle porte sur les chemins d'URL, pas sur les adresses IP.** Aucune adresse
+fixe n'est nécessaire, ni côté visiteur, ni côté administrateur : un webhook doit
+justement être appelable par n'importe qui. Ce que le proxy filtre, c'est le
+début de l'URL demandée.
+
+**Et elle s'écrit en liste blanche**, pas en liste noire : on autorise deux
+préfixes, on refuse le reste. Une liste noire oublie toujours un chemin, et
+l'oubli ici expose l'éditeur.
 
 `N8N_WEBHOOK_URL` (ou `WEBHOOK_URL`) fixe l'adresse publique que n8n inscrit
 dans les URL qu'il distribue aux services tiers : sans lui, il annoncerait
@@ -451,10 +456,47 @@ pour un usage qui n'a pas de problème de volumétrie. Le réglage
 `N8N_DISABLE_PRODUCTION_MAIN_PROCESS` existe pour que le processus principal
 cesse alors de servir les webhooks lui-même.
 
-**Recommandation : commencer par la voie simple**, liste blanche sur deux
-préfixes et éditeur derrière le tunnel. Elle donne la même surface d'exposition
+**Recommandation : commencer par la voie simple**, liste blanche de chemins sur
+deux préfixes et éditeur derrière le tunnel. Elle donne la même surface d'exposition
 publique pour un conteneur au lieu de quatre. Le mode file d'attente se
 justifiera si le volume de webhooks l'impose. À instruire dans le fil n8n.
+
+### Joindre l'éditeur n8n depuis une adresse changeante
+
+Garder l'éditeur privé ne demande pas d'adresse IP fixe non plus. Deux moyens,
+du plus simple au plus confortable.
+
+**Le tunnel SSH, qui n'ajoute rien.** Le conteneur n8n ne publie son port que sur
+la boucle locale de l'hôte — `127.0.0.1:5678:5678` dans le fichier Compose — et
+l'administrateur ouvre un tunnel depuis son poste :
+
+```bash
+ssh -L 5678:127.0.0.1:5678 ubuntu@le-vps
+```
+
+L'éditeur est alors sur `http://localhost:5678` dans son navigateur. Rien de
+neuf à installer, rien de neuf à ouvrir au pare-feu : cela réutilise la clé SSH
+et le port déjà autorisés. La connexion part du poste vers le serveur, donc
+l'adresse du poste n'a aucune importance — elle peut changer à chaque fois, être
+celle d'un partage de connexion mobile, peu importe.
+
+**Ce détail de la boucle locale n'est pas cosmétique.** Publier un port de
+conteneur sans préciser l'interface l'ouvre directement dans iptables, en
+contournant UFW — c'est le piège relevé au §7. Préfixer par `127.0.0.1:` est
+exactement ce qui l'évite : le port existe pour l'hôte et pour le tunnel, jamais
+pour Internet. Caddy, lui, joint n8n par le réseau interne de Docker pour les
+deux chemins de webhooks, sans passer par ce port.
+
+**WireGuard, si le confort l'emporte.** Un tunnel permanent évite de relancer
+une commande à chaque fois et couvre d'un coup tous les services internes à
+venir. Le poste est client, le VPS serveur : là encore la connexion part du
+poste, donc aucune adresse fixe n'est requise. Le prix est un port UDP à ouvrir
+au pare-feu et une configuration de plus à tenir.
+
+**Recommandation : le tunnel SSH pour commencer.** Il ajoute zéro surface
+d'exposition, ce qui est exactement ce qu'on cherche pour la pièce qui détient
+tous les jetons. WireGuard se justifiera le jour où plusieurs services internes
+demanderont un accès régulier.
 
 ### Sauvegarde : GitHub au maximum, un roulement pour le reste
 
@@ -500,8 +542,21 @@ marché.
 
 ## 9 ter. L'annuaire artisans contiendra des données personnelles
 
-Confirmé par Jim le 21 septembre 2026 : l'annuaire contiendra des **données à
-caractère personnel**, et toute information récupérable en source ouverte.
+Confirmé par Jim les 21 et 22 septembre 2026 : l'annuaire contiendra des
+**données à caractère personnel**, et toute information récupérable en source
+ouverte. Une première version sera **mise à l'épreuve sur la seule région
+Rhône-Alpes**, et Jim précise que seules les données légalement récoltables
+seront intégrées.
+
+Le périmètre régional est une bonne nouvelle pour l'infrastructure : la
+volumétrie reste modeste, très loin de la contrainte de disque relevée au §9, et
+il laisse le temps d'éprouver la chaîne d'effacement avant de l'appliquer à
+l'échelle nationale.
+
+**Une précision utile sur « légalement récoltable ».** C'est le bon réflexe,
+mais l'obligation la plus lourde ne porte pas sur la collecte : on peut
+collecter licitement et devoir quand même informer chaque personne. Le tri à
+l'entrée ne dispense donc pas de ce qui suit.
 
 Ce n'est pas un détail de conformité à traiter à la fin. C'est une contrainte
 d'architecture, parce que trois obligations se traduisent directement en code et
@@ -555,24 +610,23 @@ et une chaîne d'effacement qui va jusqu'aux sauvegardes.
 
 ---
 
-## 9 quater. Ce qui reste à décider
+## 9 quater. État des questions
 
-1. **Y a-t-il déjà quelque chose d'installé sur le VPS en dehors de cette
-   pile ?** Un autre proxy, un panneau d'administration, un service laissé d'un
-   essai précédent. C'est la seule question qui reste vraiment ouverte sur la
-   production, et elle décide si le fil socle peut partir d'une machine propre
-   ou doit d'abord l'inventorier.
-2. **Technologie et volumétrie de l'annuaire**, qui décident du dimensionnement
-   de sa base et de la forme des sauvegardes.
-3. **n8n : quelle voie de séparation** (liste blanche sur le proxy, ou processus
-   webhook dédié en mode file d'attente) et **quel tunnel** pour l'éditeur.
+**La machine est propre.** Jim l'a confirmé le 22 septembre 2026 : rien n'est
+installé sur le VPS en dehors de la pile décrite ici. Le fil socle peut donc
+partir d'une base connue, sans inventaire préalable de l'existant.
 
-Deux points antérieurement listés sont désormais tranchés ou résolus :
-`PUBLIC_INDEXABLE` n'est pas réellement une question — le workflow de
-construction retient `1` par défaut lorsque la variable n'est pas définie, donc
-le site est ouvert à l'indexation sauf si quelqu'un l'a explicitement mise à
-`0` — et le `www` est bien déclaré au DNS, ce qui en fait un défaut à corriger
-plutôt qu'une question (voir §4).
+Avec le `www` traité au §4 et l'indexation déduite du workflow de construction,
+il ne reste plus de question ouverte sur la production.
+
+**Restent deux choix de conception**, qui relèvent des fils suivants et non de
+cet inventaire :
+
+1. **La technologie de l'annuaire**, qui décidera du dimensionnement de sa base.
+   Le périmètre de test sur Rhône-Alpes rend la question peu pressante.
+2. **Pour n8n : quelle voie de séparation** — liste blanche de chemins sur le
+   proxy, ou processus webhook dédié en mode file d'attente — et **quel tunnel**
+   pour l'éditeur. Les deux réponses recommandées sont au §9 bis.
 
 
 ## 10. Fichiers de référence dans le dépôt d'origine
