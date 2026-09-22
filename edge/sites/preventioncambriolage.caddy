@@ -25,9 +25,31 @@
 	reverse_proxy web:8080
 }
 
-# Le domaine avec www doit servir le même site sans dupliquer le contenu aux
-# yeux des moteurs. À décommenter si l'enregistrement DNS www existe.
+# ---------------------------------------------------------------------------
+# www — actif, et il corrige une panne en production.
+# ---------------------------------------------------------------------------
 #
-# www.{$SITE_DOMAIN:preventioncambriolage.fr} {
-# 	redir https://{$SITE_DOMAIN:preventioncambriolage.fr}{uri} permanent
-# }
+# Constaté le 22 septembre 2026, et vérifié depuis l'extérieur :
+#
+#   www.preventioncambriolage.fr résout bien vers le VPS (même adresse que le
+#   domaine nu), et http://www y répond par une redirection 308 vers
+#   https://www — mais https://www échoue en « tlsv1 alert internal error »,
+#   c'est-à-dire un frontal sans bloc ni certificat pour cet hôte.
+#
+# Autrement dit, le site redirige aujourd'hui ses visiteurs vers une adresse
+# qui ne répond pas. Quelqu'un qui tape « www. » par habitude, ou qui suit un
+# lien ancien, tombe sur une erreur de certificat — et comme le domaine envoie
+# un HSTS avec includeSubDomains et preload, le navigateur ne propose même pas
+# de passer outre. C'est un mur, pas un avertissement.
+#
+# Ce bloc obtient un certificat pour www et renvoie vers le domaine nu en 301,
+# ce qui répare l'accès et évite de dupliquer le contenu aux yeux des moteurs.
+# Les en-têtes sont importés ici aussi : une redirection sans HSTS reste
+# dégradable, et c'est justement l'hôte par lequel on arriverait.
+www.{$SITE_DOMAIN:preventioncambriolage.fr} {
+	import tls_anssi
+	import entetes_securite
+	import journal_acces
+
+	redir https://{$SITE_DOMAIN:preventioncambriolage.fr}{uri} permanent
+}
