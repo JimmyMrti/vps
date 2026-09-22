@@ -493,7 +493,7 @@ venir. Le poste est client, le VPS serveur : là encore la connexion part du
 poste, donc aucune adresse fixe n'est requise. Le prix est un port UDP à ouvrir
 au pare-feu et une configuration de plus à tenir.
 
-**Recommandation : le tunnel SSH pour commencer.** Il ajoute zéro surface
+**Décidé par Jim le 22 septembre 2026 : le tunnel SSH.** Il ajoute zéro surface
 d'exposition, ce qui est exactement ce qu'on cherche pour la pièce qui détient
 tous les jetons. WireGuard se justifiera le jour où plusieurs services internes
 demanderont un accès régulier.
@@ -624,9 +624,10 @@ cet inventaire :
 
 1. **La technologie de l'annuaire**, qui décidera du dimensionnement de sa base.
    Le périmètre de test sur Rhône-Alpes rend la question peu pressante.
-2. **Pour n8n : quelle voie de séparation** — liste blanche de chemins sur le
-   proxy, ou processus webhook dédié en mode file d'attente — et **quel tunnel**
-   pour l'éditeur. Les deux réponses recommandées sont au §9 bis.
+2. **Pour n8n, la voie de séparation reste à confirmer** — liste blanche de
+   chemins sur le proxy, ou processus webhook dédié en mode file d'attente. La
+   recommandation est au §9 bis. L'accès à l'éditeur, lui, est tranché : ce sera
+   le tunnel SSH, avec le port du conteneur publié sur la seule boucle locale.
 
 
 ## 10. Fichiers de référence dans le dépôt d'origine
