@@ -45,7 +45,20 @@ compilation : uniquement Docker et trois fichiers de configuration.
 
 ## 2. Arborescence de production sur le VPS
 
-Tout vit dans `/opt/preventioncambriolage` :
+> **Avertissement — ce qui suit décrit le dépôt, pas la machine.**
+> Jim a signalé le 22 septembre 2026 que sa configuration de proxy vit en
+> réalité dans `/srv/proxy/sites/preventioncambriolage.caddy` : un frontal
+> mutualisé avec un fichier par site, et non le `Caddyfile` unique décrit ici.
+> La machine a donc divergé de la procédure du dépôt, à une date et dans une
+> mesure inconnues. **Tout ce paragraphe est à vérifier sur le serveur avant
+> d'être utilisé**, et le contenu réel de ce fichier n'a pas encore été vu.
+>
+> Conséquence immédiate pour les fils socle et services : la migration ne part
+> pas de l'état ci-dessous. Elle part d'un frontal mutualisé déjà en place,
+> dont l'inventaire reste à faire.
+
+Ce que le dépôt prévoit, et qui servait de référence jusque-là — tout vit dans
+`/opt/preventioncambriolage` :
 
 ```
 /opt/preventioncambriolage/
@@ -114,14 +127,23 @@ grille de veille hors ligne + `docker compose config --quiet`.
 
 - **Domaine :** `preventioncambriolage.fr`. Deux enregistrements attendus :
   `A @` vers l'IPv4 du VPS, `AAAA @` vers l'IPv6 si elle existe.
-- **`www` résout, mais n'est pas servi. C'est un défaut en production.**
-  Vérifié le 21 septembre 2026 : `www.preventioncambriolage.fr` répond en
+- **`www` résout, mais n'est pas servi. Défaut confirmé en production.**
+  Le 21 septembre 2026 : `www.preventioncambriolage.fr` répond en
   `92.222.91.185` et `2001:41d0:404:200::5baf`, exactement comme le domaine nu.
-  Or le bloc `www.{$DOMAIN}` du `Caddyfile` est en commentaire. Caddy n'a donc
-  aucun certificat pour ce nom et aucun site à lui servir : un visiteur qui tape
-  `www.` obtient un avertissement de sécurité du navigateur, pas une
-  redirection. Décommenter ce bloc est un correctif d'une ligne.
-  Au passage, la machine a bien une IPv6.
+  Le 22 septembre, une requête HTTPS sur ce nom a été tentée : la négociation
+  TLS échoue sur `TLSV1_ALERT_INTERNAL_ERROR`, ce qu'un Caddy sans bloc ni
+  certificat pour l'hôte demandé produit exactement. Le domaine nu, lui, répond
+  normalement. Un visiteur qui tape `www.` obtient donc un avertissement de
+  sécurité, pas une redirection.
+
+  Le correctif est d'ajouter le bloc `www`, mais **il doit être porté dans le
+  fichier réellement chargé par le proxy** — voir l'avertissement du §2. Le
+  correctif écrit dans `JimmyMrti/preventioncambriolage#18` porte sur le
+  `Caddyfile` du dépôt, qui n'est peut-être pas celui-là.
+
+  Au passage : la machine a bien une IPv6, et le site est ouvert à
+  l'indexation — `robots.txt` sert `Allow: /`, ce qui confirme
+  `PUBLIC_INDEXABLE=1` sans avoir à consulter les variables du dépôt.
 - **Certificats :** Caddy, ACME **HTTP-01**, donc le **port 80 doit rester
   ouvert en permanence** — il ne sert pas qu'à rediriger, il porte aussi chaque
   renouvellement. Renouvellement automatique à 30 jours de l'expiration,
