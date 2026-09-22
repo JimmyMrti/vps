@@ -100,16 +100,6 @@ Ce que le schéma impose :
 
 ## Migration à prévoir sur le site existant
 
-> **Une panne en cours, constatée le 22 septembre 2026.**
-> `https://www.preventioncambriolage.fr` échoue en erreur TLS, alors que
-> `http://www` redirige vers lui : le site envoie donc ses visiteurs vers une
-> adresse qui ne répond pas. Le HSTS du domaine interdit au navigateur de
-> proposer de passer outre, c'est un mur. Le bloc `www` de
-> [`edge/sites/preventioncambriolage.caddy`](../../edge/sites/preventioncambriolage.caddy)
-> le répare, mais il ne s'appliquera qu'au déploiement du frontal décrit ici —
-> la correction peut aussi se faire tout de suite sur le frontal en service,
-> avec les six lignes de ce bloc.
-
 > **La machine ne correspond plus à sa procédure.** Le frontal en service
 > charge ses fichiers depuis `/srv/proxy/sites/`, chemin absent de ce dépôt, et
 > le contenu de son fichier de site n'est pas connu. Ce qui suit décrit la

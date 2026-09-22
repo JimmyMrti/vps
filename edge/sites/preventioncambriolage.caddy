@@ -26,10 +26,13 @@
 }
 
 # ---------------------------------------------------------------------------
-# www — actif, et il corrige une panne en production.
+# www — actif. Ne pas le recommenter.
 # ---------------------------------------------------------------------------
 #
-# Constaté le 22 septembre 2026, et vérifié depuis l'extérieur :
+# Ce bloc était commenté, et son absence était une panne. Constatée le
+# 22 septembre 2026, vérifiée depuis l'extérieur, corrigée depuis à la main sur
+# le frontal en service — ce fichier décrit donc l'état voulu, et celui de la
+# machine :
 #
 #   www.preventioncambriolage.fr résout bien vers le VPS (même adresse que le
 #   domaine nu), et http://www y répond par une redirection 308 vers
@@ -43,7 +46,8 @@
 # de passer outre. C'est un mur, pas un avertissement.
 #
 # Ce bloc obtient un certificat pour www et renvoie vers le domaine nu en 301,
-# ce qui répare l'accès et évite de dupliquer le contenu aux yeux des moteurs.
+# ce qui rétablit l'accès et évite de dupliquer le contenu aux yeux des
+# moteurs.
 # Les en-têtes sont importés ici aussi : une redirection sans HSTS reste
 # dégradable, et c'est justement l'hôte par lequel on arriverait.
 www.{$SITE_DOMAIN:preventioncambriolage.fr} {
