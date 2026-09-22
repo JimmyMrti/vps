@@ -132,6 +132,24 @@ sur cette machine.
 > frontal charge — et s'il venait à l'être, il casserait le site sur le nom du
 > conteneur amont. Cette documentation est à corriger ou à retirer.
 
+### Le bloc `www` n'importe rien, et c'est une asymétrie
+
+Le bloc du domaine nu commence par `import commun` ; celui du `www` n'importe
+rien. La redirection part donc sans les en-têtes que `commun` pose sur l'autre —
+HSTS compris, selon toute vraisemblance.
+
+**Mesurer l'effet réel plutôt que l'exagérer.** Un visiteur qui arrive sur
+`www.` reçoit une redirection nue, puis atterrit immédiatement sur le domaine
+nu, qui lui sert `includeSubDomains` et couvre dès lors le `www` pour ses
+visites suivantes. La fenêtre est donc d'un seul aller, pour un premier contact.
+
+Ce n'est pas une panne, et ce n'est pas urgent. Mais le domaine est annoncé en
+`preload`, et dans cette posture une réponse servie sous un nom couvert sans
+l'en-tête correspondant est une exception qu'on préfère ne pas avoir. Le
+correctif tient en une ligne — `import commun` dans le bloc `www` — **à condition
+que `commun` ne contienne rien qui n'ait pas de sens dans un bloc de simple
+redirection**, ce qui ne pourra être dit qu'une fois son contenu relevé.
+
 ### Le dossier de déploiement a bougé, lui aussi
 
 La sortie des commandes de rechargement porte un avertissement du client
@@ -176,8 +194,11 @@ le bloc de redirection existe pour éviter.
 
 ### Ce qui reste à relever
 
-- Le contenu de l'extrait `commun`, et l'emplacement du `Caddyfile` global qui
-  le définit et qui importe `sites/*.caddy`.
+- **Le contenu de l'extrait `commun`, avant tout le reste.** C'est la dernière
+  inconnue qui bloque : tant qu'on ignore ce qu'il pose, on ne peut dire ni ce
+  que le site perdrait à une bascule, ni si le bloc `www` peut l'importer sans
+  dommage. Il se trouve dans le `Caddyfile` global, que
+  `docker exec proxy-caddy-1 cat /etc/caddy/Caddyfile` afficherait.
 - Le fichier Compose de `/srv/proxy/`, et le réseau Docker qui relie le frontal
   à `site-web`.
 - Si la pile `docker-compose.prod.yml`, le script `maj.sh` et le minuteur
