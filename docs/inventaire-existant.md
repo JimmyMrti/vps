@@ -45,19 +45,10 @@ compilation : uniquement Docker et trois fichiers de configuration.
 
 ## 2. Arborescence de production sur le VPS
 
-> **Avertissement — ce qui suit décrit le dépôt, pas la machine.**
-> Jim a signalé le 22 septembre 2026 que sa configuration de proxy vit en
-> réalité dans `/srv/proxy/sites/preventioncambriolage.caddy` : un frontal
-> mutualisé avec un fichier par site, et non le `Caddyfile` unique décrit ici.
-> La machine a donc divergé de la procédure du dépôt, à une date et dans une
-> mesure inconnues. **Tout ce paragraphe est à vérifier sur le serveur avant
-> d'être utilisé**, et le contenu réel de ce fichier n'a pas encore été vu.
->
-> Conséquence immédiate pour les fils socle et services : la migration ne part
-> pas de l'état ci-dessous. Elle part d'un frontal mutualisé déjà en place,
-> dont l'inventaire reste à faire.
+> **La machine a divergé du dépôt. Ce paragraphe décrit le dépôt ; le §2 bis
+> décrit ce qui tourne réellement.** Relevé le 22 septembre 2026 avec Jim.
 
-Ce que le dépôt prévoit, et qui servait de référence jusque-là — tout vit dans
+Ce que le dépôt prévoit, et qui a servi de référence jusque-là — tout vit dans
 `/opt/preventioncambriolage` :
 
 ```
@@ -78,6 +69,78 @@ supprimer**) et `caddy_config`.
 
 > Le dépôt n'est pas cloné sur le VPS. Les fichiers y sont déposés par `scp`.
 > C'est précisément ce qu'un socle infra as code doit remplacer.
+
+---
+
+## 2 bis. Ce qui tourne réellement — le frontal mutualisé
+
+Relevé le 22 septembre 2026, sur indication de Jim. **C'est cette description
+qui fait foi**, pas celle du §2.
+
+Le proxy n'est pas la pile `docker-compose.prod.yml` du dépôt. C'est un
+**frontal mutualisé autonome**, dans un projet Compose nommé `proxy` :
+
+```
+/srv/proxy/
+└── sites/
+    └── preventioncambriolage.caddy      seul fichier à ce jour
+```
+
+| Relevé | Valeur |
+|---|---|
+| Conteneur | `proxy-caddy-1` |
+| Image | `caddy:2.8-alpine` — la même que le dépôt |
+| Commande | `caddy run --config …` |
+| Ports publiés | 80/tcp, 443/tcp, 443/udp, en IPv4 **et** IPv6 |
+| Port 2019 | exposé dans le conteneur, **non publié** sur l'hôte — l'API d'administration n'est donc pas joignable de l'extérieur, ce qui est le bon réglage |
+| En service | depuis 11 jours, conteneur créé il y a 3 semaines |
+
+Contenu de `sites/preventioncambriolage.caddy`, avant l'intervention de Jim :
+
+```caddy
+preventioncambriolage.fr {
+        import commun
+        reverse_proxy site-web:8080
+}
+
+# Décommenter une fois l'enregistrement DNS www créé.
+# www.preventioncambriolage.fr {
+#     redir https://preventioncambriolage.fr{uri} permanent
+# }
+```
+
+Jim a décommenté le bloc `www` à la main le 22 septembre 2026.
+
+### Trois écarts avec le `Caddyfile` du dépôt
+
+Ils comptent, parce qu'ils rendent le fichier du dépôt **inutilisable tel quel**
+sur cette machine.
+
+1. **Le conteneur amont s'appelle `site-web`**, pas `web`. Le `Caddyfile` du
+   dépôt pointe sur `reverse_proxy web:8080` : appliqué ici, il ne trouverait
+   plus le site.
+2. **Les en-têtes et options communes sont dans un extrait `commun`**, importé
+   par chaque bloc, là où le dépôt les écrit en dur dans le bloc du domaine. Le
+   contenu de `commun` n'a pas encore été relevé — c'est vraisemblablement lui
+   qui porte le HSTS, la compression et la journalisation.
+3. **Il n'y a pas d'indirection `{$DOMAIN}`.** Le nom est écrit en clair, un
+   fichier par site, ce qui est la convention normale d'un frontal mutualisé.
+
+> **Piège à signaler.** `docs/vps.md` du dépôt du site décrit encore la
+> procédure `scp docker/Caddyfile …` vers `/opt/preventioncambriolage/docker/`.
+> Suivie aujourd'hui, elle déposerait un fichier qui n'est pas celui que le
+> frontal charge — et s'il venait à l'être, il casserait le site sur le nom du
+> conteneur amont. Cette documentation est à corriger ou à retirer.
+
+### Ce qui reste à relever
+
+- Le contenu de l'extrait `commun`, et l'emplacement du `Caddyfile` global qui
+  le définit et qui importe `sites/*.caddy`.
+- Le fichier Compose de `/srv/proxy/`, et le réseau Docker qui relie le frontal
+  à `site-web`.
+- Si la pile `docker-compose.prod.yml`, le script `maj.sh` et le minuteur
+  systemd du dépôt sont encore en service, et sous quelle forme, puisque le
+  conteneur du site s'appelle `site-web` et non `web`.
 
 ---
 
