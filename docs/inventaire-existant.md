@@ -132,6 +132,48 @@ sur cette machine.
 > frontal charge — et s'il venait à l'être, il casserait le site sur le nom du
 > conteneur amont. Cette documentation est à corriger ou à retirer.
 
+### Le dossier de déploiement a bougé, lui aussi
+
+La sortie des commandes de rechargement porte un avertissement du client
+Docker, répété à chaque appel :
+
+```
+WARNING: Error loading config file:
+open /srv/preventioncambriolage/.docker/config.json: permission denied
+```
+
+Il ne vient pas de Caddy et n'a gêné ni la validation ni le rechargement — ces
+commandes ne parlent à aucun registre. Mais il apprend deux choses.
+
+**Le dossier de déploiement est `/srv/preventioncambriolage/`, pas
+`/opt/preventioncambriolage/`.** Tout le §2 est donc décalé d'un cran de plus
+que prévu : ce n'est pas seulement le proxy qui a bougé, c'est l'arborescence
+entière.
+
+**La variable `DOCKER_CONFIG` de la session pointe vers un dossier que
+l'utilisateur ne peut pas lire.** C'est cohérent avec le `chmod 700` de la
+procédure d'origine, et sans conséquence pour la mise à jour du site, qui
+tourne en root par systemd et lit donc le fichier sans peine. L'avertissement
+n'apparaît que dans les commandes lancées à la main. Il reste cosmétique tant
+qu'aucune commande manuelle n'a besoin du registre ; le jour où l'une en aura
+besoin, elle échouera sur `unauthorized` sans que la cause saute aux yeux.
+
+### Le `www` est réparé
+
+Vérifié depuis l'extérieur le 22 septembre 2026, avant et après.
+
+| Moment | Requête HTTPS sur `www.preventioncambriolage.fr` |
+|---|---|
+| 17 h 09 | échec — `TLSV1_ALERT_INTERNAL_ERROR` |
+| 17 h 17, après rechargement | succès — la négociation TLS aboutit et le contenu est servi |
+
+Le certificat a donc bien été émis pour ce nom. **Non vérifié depuis ici :**
+que la réponse soit bien un 301 vers le domaine nu plutôt qu'un service direct
+du contenu sous `www.` — l'outil employé ne restitue pas les en-têtes. Un
+`curl -sI https://www.preventioncambriolage.fr/` le dira en une ligne, et
+l'enjeu est réel : servir le même contenu sous deux noms est exactement ce que
+le bloc de redirection existe pour éviter.
+
 ### Ce qui reste à relever
 
 - Le contenu de l'extrait `commun`, et l'emplacement du `Caddyfile` global qui
