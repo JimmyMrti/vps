@@ -36,7 +36,7 @@ mises à jour.
 
 ---
 
-## Les deux pièges
+## Les quatre pièges
 
 ### 1. Deux Caddy ne peuvent pas tenir le port 443
 
@@ -57,6 +57,39 @@ a alors plus rien à faire qu'attendre sept jours — avec un site hors ligne.
 
 C'est la raison d'être de la répétition ci-dessous.
 
+### 3. Le conteneur du site ne s'appelle pas pareil des deux côtés
+
+En production, le conteneur du site s'appelle **`site-web`**. Le dépôt le
+nomme **`web`**. Le fichier de site du dépôt écrit donc `reverse_proxy
+web:8080`, et ce nom ne résout pas tant que l'ancienne pile est en place : le
+frontal démarre, obtient son certificat, et répond 502 à tout le monde.
+
+Ce n'est pas une divergence à corriger d'un côté ou de l'autre. `site-web`
+n'est le nom de personne : c'est celui que Compose fabrique à partir du projet
+`site` et du service `web`. La pile du dépôt épingle `container_name: web`,
+ce qui fixe le nom au lieu de le laisser dépendre du nom du dossier. Les deux
+désignent le même service ; seul le nom visible change, et il change **au
+moment où la nouvelle pile du site démarre**.
+
+D'où la seule règle qui compte : à l'étape 5, le frontal et le site se
+déploient **ensemble**, `--tags proxy,site`. Jouer `--tags proxy` seul met en
+place un frontal qui pointe sur un conteneur qui n'existe pas encore.
+
+### 4. Les fichiers de site en place importent un extrait nommé `commun`
+
+Le frontal en place charge ses fichiers depuis `/srv/proxy/sites/` et ils
+importent un extrait partagé sous le nom `commun`. Le Caddyfile du socle ne
+définit pas ce nom : ses extraits à lui portent d'autres noms, dont
+`tls_anssi` pour le profil TLS.
+
+Recopier ces fichiers tels quels dans `edge/sites/` ne passe donc pas. La
+bonne nouvelle est que ça ne passe pas **tôt** : le rôle `proxy` fait tourner
+`caddy validate` avant de démarrer quoi que ce soit, et un extrait inconnu y
+est refusé. L'échec arrive pendant le déploiement, pas devant les visiteurs.
+Il reste à faire la correspondance à la main, extrait par extrait, en lisant
+ce que `commun` contient réellement — un réglage qui s'y trouve et que le
+socle ne reprend pas serait perdu en silence.
+
 ---
 
 ## Procédure
@@ -67,6 +100,20 @@ C'est la raison d'être de la répétition ci-dessous.
 connaît pas la machine : elle connaît la procédure d'installation, dont la
 machine a déjà divergé au moins une fois. Tout ce qui suit s'appuie sur les
 trois variables relevées ici, et sur rien d'écrit d'avance.
+
+> **Ce qui a déjà été relevé, au 22/09/2026 :** le frontal en place est un
+> conteneur `caddy:2.8-alpine` nommé `proxy-caddy-1` — donc un projet Compose
+> `proxy`, service `caddy` —, il charge ses fichiers de site depuis
+> `/srv/proxy/sites/`, et ces fichiers importent un extrait partagé nommé
+> `commun`. Le conteneur du site s'appelle `site-web`.
+>
+> Ces valeurs sont un point de départ pour le relevé, pas un raccourci qui
+> permettrait de le sauter. Elles datent, elles viennent d'un rapport et non
+> d'un relevé fait par la personne qui bascule, et la machine a déjà montré
+> qu'elle bougeait sans que le dépôt le sache. Le volume des certificats, en
+> particulier, n'a pas été relevé : un projet nommé `proxy` le ferait attendre
+> sous `proxy_caddy_data`, mais un `volumes:` nommé explicitement dans le
+> fichier compose change cela.
 
 ```bash
 # Qui tient les ports 80 et 443 ?
