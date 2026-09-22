@@ -1,5 +1,24 @@
 # Sites du frontal
 
+> **Avertissement — la machine a divergé de sa procédure.**
+> Le frontal réellement en service charge ses fichiers de site depuis
+> `/srv/proxy/sites/`, un chemin qui n'existe nulle part dans ce dépôt, et le
+> contenu de son `preventioncambriolage.caddy` n'est pas connu à ce jour.
+>
+> Deux conséquences. D'abord, **l'emplacement** : ces fichiers sont du contenu,
+> pas un chemin — c'est le rôle `proxy` du socle qui décide où ils atterrissent,
+> et il faudra l'aligner sur la machine réelle ou aligner la machine sur lui.
+> Ensuite et surtout, **le contenu** : le `preventioncambriolage.caddy` de ce
+> dépôt est écrit d'après la procédure documentée, pas d'après le fichier en
+> service. Le déposer sans avoir lu l'original ferait perdre tout ce que
+> celui-ci contient et que nous ignorons — une redirection, un en-tête, une
+> exception ajoutée un soir et jamais notée.
+>
+> **Lire le fichier en service avant de déployer quoi que ce soit**, et
+> reporter ici ce qu'il contient de plus. Les fichiers `n8n.caddy` et
+> `annuaire.caddy` ne sont pas concernés : ils décrivent des services qui
+> n'existent pas encore sur la machine.
+
 Un fichier par domaine, importés par le Caddyfile du socle :
 
 ```

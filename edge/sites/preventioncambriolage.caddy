@@ -1,5 +1,11 @@
 # preventioncambriolage.fr — site statique déjà en production.
 #
+# ATTENTION : ce fichier est écrit d'après la procédure documentée, PAS d'après
+# le fichier réellement en service, qui vit dans /srv/proxy/sites/ sur la
+# machine et dont le contenu n'est pas connu. Le déposer tel quel ferait perdre
+# ce que l'original contient en plus. Lire l'original d'abord, reporter ici ce
+# qu'il a de particulier, et seulement ensuite déployer. Voir README.md.
+#
 # Ce fichier remplace le Caddy embarqué dans la pile du site. La bascule est
 # décrite dans docs/services/README.md : tant que l'ancien Caddy tient les
 # ports 80 et 443, le frontal mutualisé ne démarre pas.

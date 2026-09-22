@@ -100,7 +100,14 @@ Ce que le schéma impose :
 
 ## Migration à prévoir sur le site existant
 
-Aujourd'hui `docker-compose.prod.yml` de preventioncambriolage embarque son
+> **La machine ne correspond plus à sa procédure.** Le frontal en service
+> charge ses fichiers depuis `/srv/proxy/sites/`, chemin absent de ce dépôt, et
+> le contenu de son fichier de site n'est pas connu. Ce qui suit décrit la
+> bascule telle qu'elle était prévue au vu de la documentation ; **elle est à
+> confronter à l'état réel avant d'être déroulée**, et une partie en a
+> peut-être déjà été faite autrement.
+
+La procédure documentée décrit un `docker-compose.prod.yml` qui embarque son
 propre Caddy et publie 80, 443 et 443/udp. Avec un frontal mutualisé, **les
 deux se disputeraient les ports**. La bascule :
 
