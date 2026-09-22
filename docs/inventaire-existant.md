@@ -45,7 +45,11 @@ compilation : uniquement Docker et trois fichiers de configuration.
 
 ## 2. Arborescence de production sur le VPS
 
-Tout vit dans `/opt/preventioncambriolage` :
+> **La machine a divergé du dépôt. Ce paragraphe décrit le dépôt ; le §2 bis
+> décrit ce qui tourne réellement.** Relevé le 22 septembre 2026 avec Jim.
+
+Ce que le dépôt prévoit, et qui a servi de référence jusque-là — tout vit dans
+`/opt/preventioncambriolage` :
 
 ```
 /opt/preventioncambriolage/
@@ -65,6 +69,120 @@ supprimer**) et `caddy_config`.
 
 > Le dépôt n'est pas cloné sur le VPS. Les fichiers y sont déposés par `scp`.
 > C'est précisément ce qu'un socle infra as code doit remplacer.
+
+---
+
+## 2 bis. Ce qui tourne réellement — le frontal mutualisé
+
+Relevé le 22 septembre 2026, sur indication de Jim. **C'est cette description
+qui fait foi**, pas celle du §2.
+
+Le proxy n'est pas la pile `docker-compose.prod.yml` du dépôt. C'est un
+**frontal mutualisé autonome**, dans un projet Compose nommé `proxy` :
+
+```
+/srv/proxy/
+└── sites/
+    └── preventioncambriolage.caddy      seul fichier à ce jour
+```
+
+| Relevé | Valeur |
+|---|---|
+| Conteneur | `proxy-caddy-1` |
+| Image | `caddy:2.8-alpine` — la même que le dépôt |
+| Commande | `caddy run --config …` |
+| Ports publiés | 80/tcp, 443/tcp, 443/udp, en IPv4 **et** IPv6 |
+| Port 2019 | exposé dans le conteneur, **non publié** sur l'hôte — l'API d'administration n'est donc pas joignable de l'extérieur, ce qui est le bon réglage |
+| En service | depuis 11 jours, conteneur créé il y a 3 semaines |
+
+Contenu de `sites/preventioncambriolage.caddy`, avant l'intervention de Jim :
+
+```caddy
+preventioncambriolage.fr {
+        import commun
+        reverse_proxy site-web:8080
+}
+
+# Décommenter une fois l'enregistrement DNS www créé.
+# www.preventioncambriolage.fr {
+#     redir https://preventioncambriolage.fr{uri} permanent
+# }
+```
+
+Jim a décommenté le bloc `www` à la main le 22 septembre 2026.
+
+### Trois écarts avec le `Caddyfile` du dépôt
+
+Ils comptent, parce qu'ils rendent le fichier du dépôt **inutilisable tel quel**
+sur cette machine.
+
+1. **Le conteneur amont s'appelle `site-web`**, pas `web`. Le `Caddyfile` du
+   dépôt pointe sur `reverse_proxy web:8080` : appliqué ici, il ne trouverait
+   plus le site.
+2. **Les en-têtes et options communes sont dans un extrait `commun`**, importé
+   par chaque bloc, là où le dépôt les écrit en dur dans le bloc du domaine. Le
+   contenu de `commun` n'a pas encore été relevé — c'est vraisemblablement lui
+   qui porte le HSTS, la compression et la journalisation.
+3. **Il n'y a pas d'indirection `{$DOMAIN}`.** Le nom est écrit en clair, un
+   fichier par site, ce qui est la convention normale d'un frontal mutualisé.
+
+> **Piège à signaler.** `docs/vps.md` du dépôt du site décrit encore la
+> procédure `scp docker/Caddyfile …` vers `/opt/preventioncambriolage/docker/`.
+> Suivie aujourd'hui, elle déposerait un fichier qui n'est pas celui que le
+> frontal charge — et s'il venait à l'être, il casserait le site sur le nom du
+> conteneur amont. Cette documentation est à corriger ou à retirer.
+
+### Le dossier de déploiement a bougé, lui aussi
+
+La sortie des commandes de rechargement porte un avertissement du client
+Docker, répété à chaque appel :
+
+```
+WARNING: Error loading config file:
+open /srv/preventioncambriolage/.docker/config.json: permission denied
+```
+
+Il ne vient pas de Caddy et n'a gêné ni la validation ni le rechargement — ces
+commandes ne parlent à aucun registre. Mais il apprend deux choses.
+
+**Le dossier de déploiement est `/srv/preventioncambriolage/`, pas
+`/opt/preventioncambriolage/`.** Tout le §2 est donc décalé d'un cran de plus
+que prévu : ce n'est pas seulement le proxy qui a bougé, c'est l'arborescence
+entière.
+
+**La variable `DOCKER_CONFIG` de la session pointe vers un dossier que
+l'utilisateur ne peut pas lire.** C'est cohérent avec le `chmod 700` de la
+procédure d'origine, et sans conséquence pour la mise à jour du site, qui
+tourne en root par systemd et lit donc le fichier sans peine. L'avertissement
+n'apparaît que dans les commandes lancées à la main. Il reste cosmétique tant
+qu'aucune commande manuelle n'a besoin du registre ; le jour où l'une en aura
+besoin, elle échouera sur `unauthorized` sans que la cause saute aux yeux.
+
+### Le `www` est réparé
+
+Vérifié depuis l'extérieur le 22 septembre 2026, avant et après.
+
+| Moment | Requête HTTPS sur `www.preventioncambriolage.fr` |
+|---|---|
+| 17 h 09 | échec — `TLSV1_ALERT_INTERNAL_ERROR` |
+| 17 h 17, après rechargement | succès — la négociation TLS aboutit et le contenu est servi |
+
+Le certificat a donc bien été émis pour ce nom. **Non vérifié depuis ici :**
+que la réponse soit bien un 301 vers le domaine nu plutôt qu'un service direct
+du contenu sous `www.` — l'outil employé ne restitue pas les en-têtes. Un
+`curl -sI https://www.preventioncambriolage.fr/` le dira en une ligne, et
+l'enjeu est réel : servir le même contenu sous deux noms est exactement ce que
+le bloc de redirection existe pour éviter.
+
+### Ce qui reste à relever
+
+- Le contenu de l'extrait `commun`, et l'emplacement du `Caddyfile` global qui
+  le définit et qui importe `sites/*.caddy`.
+- Le fichier Compose de `/srv/proxy/`, et le réseau Docker qui relie le frontal
+  à `site-web`.
+- Si la pile `docker-compose.prod.yml`, le script `maj.sh` et le minuteur
+  systemd du dépôt sont encore en service, et sous quelle forme, puisque le
+  conteneur du site s'appelle `site-web` et non `web`.
 
 ---
 
@@ -114,14 +232,23 @@ grille de veille hors ligne + `docker compose config --quiet`.
 
 - **Domaine :** `preventioncambriolage.fr`. Deux enregistrements attendus :
   `A @` vers l'IPv4 du VPS, `AAAA @` vers l'IPv6 si elle existe.
-- **`www` résout, mais n'est pas servi. C'est un défaut en production.**
-  Vérifié le 21 septembre 2026 : `www.preventioncambriolage.fr` répond en
+- **`www` résout, mais n'est pas servi. Défaut confirmé en production.**
+  Le 21 septembre 2026 : `www.preventioncambriolage.fr` répond en
   `92.222.91.185` et `2001:41d0:404:200::5baf`, exactement comme le domaine nu.
-  Or le bloc `www.{$DOMAIN}` du `Caddyfile` est en commentaire. Caddy n'a donc
-  aucun certificat pour ce nom et aucun site à lui servir : un visiteur qui tape
-  `www.` obtient un avertissement de sécurité du navigateur, pas une
-  redirection. Décommenter ce bloc est un correctif d'une ligne.
-  Au passage, la machine a bien une IPv6.
+  Le 22 septembre, une requête HTTPS sur ce nom a été tentée : la négociation
+  TLS échoue sur `TLSV1_ALERT_INTERNAL_ERROR`, ce qu'un Caddy sans bloc ni
+  certificat pour l'hôte demandé produit exactement. Le domaine nu, lui, répond
+  normalement. Un visiteur qui tape `www.` obtient donc un avertissement de
+  sécurité, pas une redirection.
+
+  Le correctif est d'ajouter le bloc `www`, mais **il doit être porté dans le
+  fichier réellement chargé par le proxy** — voir l'avertissement du §2. Le
+  correctif écrit dans `JimmyMrti/preventioncambriolage#18` porte sur le
+  `Caddyfile` du dépôt, qui n'est peut-être pas celui-là.
+
+  Au passage : la machine a bien une IPv6, et le site est ouvert à
+  l'indexation — `robots.txt` sert `Allow: /`, ce qui confirme
+  `PUBLIC_INDEXABLE=1` sans avoir à consulter les variables du dépôt.
 - **Certificats :** Caddy, ACME **HTTP-01**, donc le **port 80 doit rester
   ouvert en permanence** — il ne sert pas qu'à rediriger, il porte aussi chaque
   renouvellement. Renouvellement automatique à 30 jours de l'expiration,
