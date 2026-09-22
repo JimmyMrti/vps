@@ -22,7 +22,23 @@
 
 	# Caddy transmet X-Forwarded-Proto et X-Forwarded-For : c'est sur eux que
 	# nginx s'appuie pour émettre HSTS et connaître l'IP d'origine.
-	reverse_proxy web:8080
+	#
+	# L'amont est une variable, et pas par goût du réglage : en production le
+	# conteneur s'appelle aujourd'hui `site-web`, nom fabriqué par Compose à
+	# partir du projet et du service, alors que la pile cible l'épingle sur
+	# `web`. Sans cette variable, frontal et site doivent être déployés d'un
+	# seul geste, faute de quoi on obtient un certificat valide et un 502
+	# général — sur un site en production, c'est le moment le plus risqué de
+	# toute la reprise.
+	#
+	# Avec elle, la bascule peut se faire en deux temps vérifiables :
+	# raccorder le conteneur existant au réseau du frontal
+	# (`docker network connect edge site-web`), démarrer le frontal avec
+	# SITE_AMONT=site-web:8080, vérifier que le site répond, puis seulement
+	# déployer la pile cible et revenir au défaut.
+	#
+	# Le défaut reste `web:8080` : le contrat ne change pas.
+	reverse_proxy {$SITE_AMONT:web:8080}
 }
 
 # ---------------------------------------------------------------------------

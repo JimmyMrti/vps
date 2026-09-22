@@ -18,6 +18,16 @@
 > reporter ici ce qu'il contient de plus. Les fichiers `n8n.caddy` et
 > `annuaire.caddy` ne sont pas concernés : ils décrivent des services qui
 > n'existent pas encore sur la machine.
+>
+> Un point précis à ne pas manquer à la reprise : **les fichiers en service
+> importent un extrait nommé `commun`**, que le Caddyfile du socle ne définit
+> pas. Un fichier récupéré tel quel fera donc échouer `caddy validate`, ce qui
+> est la bonne nouvelle — l'erreur arrive au déploiement, pas devant les
+> visiteurs. La mauvaise est l'inverse : **un réglage présent dans `commun` et
+> non repris ici disparaîtrait sans bruit.** La correspondance se fait ligne à
+> ligne, en versant ce que contient `commun` dans `00-extraits.caddy` ou dans
+> le profil TLS du socle, et non en supprimant l'`import` pour faire passer la
+> validation.
 
 Un fichier par domaine, importés par le Caddyfile du socle :
 
@@ -58,6 +68,7 @@ Caddy — c'est la pile du frontal, côté socle, qui doit les fournir.
 | Variable | Rôle | Si vide |
 |---|---|---|
 | `SITE_DOMAIN` | preventioncambriolage.fr | `preventioncambriolage.fr` |
+| `SITE_AMONT` | le conteneur qui sert le site, pour une bascule en deux temps | `web:8080`, le nom de la pile cible |
 | `N8N_DOMAIN` | domaine de n8n, étiquette aléatoire sous le domaine d'infrastructure | `n8n.localhost`, donc inactif publiquement |
 | `N8N_IP_ADMIN` | adresses autorisées sur l'interface n8n | `192.0.2.1`, adresse de documentation : personne n'entre |
 | `ANNUAIRE_DOMAIN` | domaine de l'annuaire | `annuaire.localhost`, donc inactif |
