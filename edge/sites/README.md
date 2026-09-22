@@ -2,32 +2,48 @@
 
 > **Avertissement — la machine a divergé de sa procédure.**
 > Le frontal réellement en service charge ses fichiers de site depuis
-> `/srv/proxy/sites/`, un chemin qui n'existe nulle part dans ce dépôt, et le
-> contenu de son `preventioncambriolage.caddy` n'est pas connu à ce jour.
+> `/srv/proxy/sites/`, un chemin qui n'existe nulle part dans ce dépôt. Le
+> contenu de son `preventioncambriolage.caddy` a été relevé le 22 septembre
+> 2026 et se réduit à ceci :
 >
-> Deux conséquences. D'abord, **l'emplacement** : ces fichiers sont du contenu,
-> pas un chemin — c'est le rôle `proxy` du socle qui décide où ils atterrissent,
-> et il faudra l'aligner sur la machine réelle ou aligner la machine sur lui.
-> Ensuite et surtout, **le contenu** : le `preventioncambriolage.caddy` de ce
-> dépôt est écrit d'après la procédure documentée, pas d'après le fichier en
-> service. Le déposer sans avoir lu l'original ferait perdre tout ce que
-> celui-ci contient et que nous ignorons — une redirection, un en-tête, une
-> exception ajoutée un soir et jamais notée.
+> ```caddy
+> preventioncambriolage.fr {
+>         import commun
+>         reverse_proxy site-web:8080
+> }
 >
-> **Lire le fichier en service avant de déployer quoi que ce soit**, et
-> reporter ici ce qu'il contient de plus. Les fichiers `n8n.caddy` et
-> `annuaire.caddy` ne sont pas concernés : ils décrivent des services qui
-> n'existent pas encore sur la machine.
+> www.preventioncambriolage.fr {
+>     redir https://preventioncambriolage.fr{uri} permanent
+> }
+> ```
 >
-> Un point précis à ne pas manquer à la reprise : **les fichiers en service
-> importent un extrait nommé `commun`**, que le Caddyfile du socle ne définit
-> pas. Un fichier récupéré tel quel fera donc échouer `caddy validate`, ce qui
-> est la bonne nouvelle — l'erreur arrive au déploiement, pas devant les
-> visiteurs. La mauvaise est l'inverse : **un réglage présent dans `commun` et
-> non repris ici disparaîtrait sans bruit.** La correspondance se fait ligne à
-> ligne, en versant ce que contient `commun` dans `00-extraits.caddy` ou dans
-> le profil TLS du socle, et non en supprimant l'`import` pour faire passer la
-> validation.
+> Ce qu'il en reste à traiter tient en trois points.
+>
+> **L'emplacement.** Ces fichiers sont du contenu, pas un chemin — c'est le
+> rôle `proxy` du socle qui décide où ils atterrissent. Il faudra l'aligner sur
+> `/srv/proxy/sites/` ou aligner la machine sur `/etc/caddy/sites/` ; le
+> principe est le même des deux côtés, un fichier par domaine importé par le
+> Caddyfile global, seul le chemin diffère. L'arbitrage revient au socle.
+>
+> **L'extrait `commun`, seule inconnue qui reste.** Chaque bloc en service
+> l'importe en première ligne, et le Caddyfile du socle ne le définit pas. Un
+> fichier récupéré tel quel fera donc échouer `caddy validate`, ce qui est la
+> bonne nouvelle — l'erreur arrive au déploiement, pas devant les visiteurs. La
+> mauvaise est l'inverse : **un réglage présent dans `commun` et non repris ici
+> disparaîtrait sans bruit.** Il porte vraisemblablement le HSTS, la
+> compression et la journalisation, que ce dépôt répartit entre `tls_anssi`
+> (socle), `entetes_securite` et `journal_acces`. La correspondance se fait
+> ligne à ligne vers ces extraits, jamais en supprimant l'`import` pour faire
+> passer la validation.
+>
+> **Deux écarts volontaires avec l'original**, pour que la comparaison ne les
+> prenne pas pour des oublis : le domaine passe ici par `{$SITE_DOMAIN}`, dont
+> le défaut est ce même domaine ; et le bloc `www` de l'original n'importe rien
+> du tout, donc il ne sert ni HSTS ni en-tête de sécurité, là où celui de ce
+> dépôt importe les mêmes extraits que le domaine nu.
+>
+> Les fichiers `n8n.caddy` et `annuaire.caddy` ne sont pas concernés : ils
+> décrivent des services qui n'existent pas encore sur la machine.
 
 Un fichier par domaine, importés par le Caddyfile du socle :
 

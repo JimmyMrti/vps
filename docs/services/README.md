@@ -100,30 +100,54 @@ Ce que le schéma impose :
 
 ## Migration à prévoir sur le site existant
 
-> **La machine ne correspond plus à sa procédure.** Le frontal en service
-> charge ses fichiers depuis `/srv/proxy/sites/`, chemin absent de ce dépôt, et
-> le contenu de son fichier de site n'est pas connu. Ce qui suit décrit la
-> bascule telle qu'elle était prévue au vu de la documentation ; **elle est à
-> confronter à l'état réel avant d'être déroulée**, et une partie en a
-> peut-être déjà été faite autrement.
+Relevé le 22 septembre 2026, et il vaut mieux que ce que ce document
+supposait. **Le frontal mutualisé existe déjà.** Ce n'est pas la pile du site
+qui tient les ports : c'est un projet Compose autonome nommé `proxy`,
+conteneur `proxy-caddy-1`, image `caddy:2.8-alpine`, qui publie 80, 443 et
+443/udp et charge un fichier par site depuis `/srv/proxy/sites/`. Le site,
+lui, tourne dans un conteneur `site-web` qui écoute en HTTP simple sur 8080
+sans publier de port, et son arborescence de déploiement est
+`/srv/preventioncambriolage/`.
 
-La procédure documentée décrit un `docker-compose.prod.yml` qui embarque son
-propre Caddy et publie 80, 443 et 443/udp. Avec un frontal mutualisé, **les
-deux se disputeraient les ports**. La bascule :
+La migration n'est donc pas celle qu'on croyait. Il n'y a **pas** deux Caddy à
+départager sur les ports : le découpage visé est déjà en place sur la machine.
+Ce qui reste à faire est de le faire rentrer dans le dépôt, sans jamais
+interrompre le site.
 
-1. Créer le réseau `edge` et démarrer le Caddy du socle avec, dans ses sites,
-   `preventioncambriolage.caddy` (fourni ici).
-2. Retirer le service `caddy` de la pile du site et raccorder `web` au réseau
-   `edge` — le site continue d'écouter en HTTP simple sur 8080, sans port
-   publié, exactement comme aujourd'hui côté conteneur.
-3. Reprendre le volume `caddy_data` existant, ou laisser Caddy redemander les
-   certificats. Let's Encrypt limite à **5 certificats identiques par semaine**
-   : on ne recommence pas cette étape à volonté.
+Ce qui change, point par point :
 
-L'ordre compte : tant que l'ancien Caddy tient les ports, le nouveau ne
-démarre pas.
+1. **Les fichiers de site.** Le principe est identique des deux côtés — un
+   fichier par domaine, importé par le Caddyfile global — seul le chemin
+   diffère, `/srv/proxy/sites/` sur la machine contre `/etc/caddy/sites/` dans
+   ce dépôt. C'est au socle de trancher lequel des deux l'emporte ; le contenu
+   de `edge/sites/` ne change pas dans un cas comme dans l'autre.
+2. **L'extrait `commun`.** Les fichiers en service l'importent, le socle ne le
+   définit pas. C'est la seule inconnue qui reste et elle est bloquante : voir
+   `edge/sites/README.md`, qui dit pourquoi l'oublier serait silencieux.
+3. **Le nom du conteneur amont.** `site-web` sur la machine, `web` dans la
+   pile cible. `edge/sites/preventioncambriolage.caddy` lit son amont dans
+   `{$SITE_AMONT:web:8080}` justement pour que la bascule puisse se faire en
+   deux temps vérifiables plutôt qu'en un seul geste.
+4. **Le réseau.** `proxy-caddy-1` joint déjà `site-web` par son nom, donc un
+   réseau les relie ; son nom n'a pas été relevé. Le réseau `edge` de ce dépôt
+   en est un autre. Pendant la bascule, `docker network connect edge site-web`
+   laisse le conteneur sur les deux, et le site ne s'interrompt pas.
+5. **Le volume `caddy_data`.** Il appartient au projet `proxy` et contient les
+   certificats. **Le reprendre, ne jamais le supprimer** : Let's Encrypt limite
+   à 5 certificats identiques par semaine, on ne recommence pas cette étape à
+   volonté. Détruire le projet `proxy` sans avoir repris son volume coûterait
+   le quota, pas seulement du temps.
+6. **L'arborescence.** L'existant vit sous `/srv/`, ce dépôt place les services
+   nouveaux sous `/opt/vps/`. Rien n'oblige à les réunir tout de suite : n8n et
+   l'annuaire n'existent nulle part sur la machine, ils peuvent naître sous
+   `/opt/vps/` sans toucher au site. L'uniformisation est un arbitrage du
+   socle, à faire quand le site entrera dans le dépôt, pas avant.
 
----
+> Un piège hérité, signalé par l'inventaire : `docs/vps.md` du dépôt du site
+> décrit encore un `scp docker/Caddyfile` vers `/opt/preventioncambriolage/`.
+> Suivie aujourd'hui, cette procédure déposerait un fichier que le frontal ne
+> charge pas — et s'il venait à le charger, il casserait le site sur le nom du
+> conteneur amont. Ne pas la dérouler.
 
 ## Mise en service, dans l'ordre
 

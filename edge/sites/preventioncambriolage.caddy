@@ -1,10 +1,28 @@
 # preventioncambriolage.fr — site statique déjà en production.
 #
-# ATTENTION : ce fichier est écrit d'après la procédure documentée, PAS d'après
-# le fichier réellement en service, qui vit dans /srv/proxy/sites/ sur la
-# machine et dont le contenu n'est pas connu. Le déposer tel quel ferait perdre
-# ce que l'original contient en plus. Lire l'original d'abord, reporter ici ce
-# qu'il a de particulier, et seulement ensuite déployer. Voir README.md.
+# Le fichier réellement en service a été relevé le 22 septembre 2026 ; il vit
+# dans /srv/proxy/sites/ sur la machine, et le voici en entier :
+#
+#   preventioncambriolage.fr {
+#           import commun
+#           reverse_proxy site-web:8080
+#   }
+#
+#   www.preventioncambriolage.fr {
+#       redir https://preventioncambriolage.fr{uri} permanent
+#   }
+#
+# Il ne reste donc qu'une seule inconnue, mais elle est entière : le contenu de
+# l'extrait `commun`. Tout le reste de l'original est ici. Voir README.md pour
+# la correspondance ligne à ligne à faire avant de déployer.
+#
+# Deux écarts volontaires avec l'original, à connaître avant de comparer :
+#   - l'original écrit le domaine en clair, ce fichier passe par
+#     {$SITE_DOMAIN} dont le défaut est ce même domaine : à l'exécution, c'est
+#     le même nom ;
+#   - le bloc www de l'original n'importe rien du tout, donc il ne sert ni
+#     HSTS ni en-tête de sécurité. Ici il importe les mêmes extraits que le
+#     domaine nu. C'est un durcissement assumé, pas une transcription.
 #
 # Ce fichier remplace le Caddy embarqué dans la pile du site. La bascule est
 # décrite dans docs/services/README.md : tant que l'ancien Caddy tient les
