@@ -38,7 +38,8 @@ export OVH_CONSUMER_KEY=...
 ## Premier passage : importer avant d'appliquer
 
 > **Le site est déjà en production.** Les enregistrements `A` et `AAAA` de
-> l'apex existent et servent `preventioncambriolage.fr`. Si vous lancez
+> l'apex existent et servent `preventioncambriolage.fr`, et depuis le
+> 22/09/2026 ceux de `www` aussi. Si vous lancez
 > `terraform apply` sans importer, Terraform les considère comme absents, en
 > crée de nouveaux à côté, et la zone se retrouve avec des doublons — donc un
 > site qui répond une fois sur deux.
@@ -61,7 +62,14 @@ clé fait partie de l'adresse :
 terraform init
 terraform import 'ovh_domain_zone_record.apex_a["preventioncambriolage.fr"]'    preventioncambriolage.fr/ID_DU_A
 terraform import 'ovh_domain_zone_record.apex_aaaa["preventioncambriolage.fr"]' preventioncambriolage.fr/ID_DU_AAAA
+terraform import 'ovh_domain_zone_record.www_a["preventioncambriolage.fr"]'     preventioncambriolage.fr/ID_DU_WWW_A
+terraform import 'ovh_domain_zone_record.www_aaaa["preventioncambriolage.fr"]'  preventioncambriolage.fr/ID_DU_WWW_AAAA
 ```
+
+Les deux dernières lignes ne valent que si `www = true` pour ce domaine, et
+que si l'enregistrement `AAAA` existe — la machine peut n'avoir qu'une IPv4.
+Un `terraform plan` qui propose de **créer** un enregistrement déjà présent
+dans la zone est le signe qu'il manque un import, pas qu'il faut appliquer.
 
 Et **vérifiez que le plan est vide** avant d'aller plus loin :
 

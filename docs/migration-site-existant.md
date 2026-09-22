@@ -221,11 +221,18 @@ Enfin, mettre de côté les unités systemd de la mise à jour automatique, que 
 bascule va écraser puisqu'elle leur donne les mêmes noms :
 
 ```bash
-sudo cp -a /etc/systemd/system/maj-site.service /root/maj-site.service.avant
-sudo cp -a /etc/systemd/system/maj-site.timer   /root/maj-site.timer.avant
-systemctl list-timers --all | grep -i maj   # voir s'il y en a d'autres
+systemctl list-timers --all | grep -i maj   # voir ce qui existe, et sous quel nom
+for u in maj-site.service maj-site.timer; do
+  [ -f "/etc/systemd/system/$u" ] && sudo cp -a "/etc/systemd/system/$u" "/root/$u.avant"
+done
 sudo systemctl cat maj-site.service | grep -E 'ExecStart|WorkingDirectory'
 ```
+
+L'inventaire ne sait pas encore si ces unités tournent toujours sous ce nom :
+la pile du site ayant elle aussi bougé, elles peuvent avoir été renommées ou
+remplacées. D'où la boucle plutôt qu'un `cp` sec, et le `list-timers` d'abord.
+S'il n'y a plus de minuteur du tout, la mise à jour automatique du site est
+déjà à l'arrêt — c'est à savoir avant de basculer, pas après.
 
 Ce `grep` donne au passage la seconde arborescence à relever : le dossier de la
 pile du **site**, distinct de celui du frontal — `/srv/preventioncambriolage/`
@@ -323,6 +330,11 @@ docker logs -f frontal
 ansible-playbook verification.yml
 curl -s https://preventioncambriolage.fr/robots.txt
 curl -sI https://preventioncambriolage.fr/ | grep -i strict-transport
+
+# Le www existe depuis le 22/09/2026 et porte un certificat. Il doit REDIRIGER,
+# pas servir : le même contenu sous deux noms est ce que le bloc de
+# redirection existe pour éviter.
+curl -sI https://www.preventioncambriolage.fr/ | head -1   # attendu : 301
 ```
 
 Une page connue, une page inexistante — le site n'a aucune redirection par

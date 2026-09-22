@@ -18,7 +18,12 @@ ttl = 3600
 domaines = {
   "preventioncambriolage.fr" = {
     commentaire = "Site statique déjà en production"
-    www         = false
+    # Jim a créé l'enregistrement www le 22/09/2026 et le frontal en place a
+    # obtenu son certificat pour ce nom. Le laisser à false ne l'effacerait
+    # pas — Terraform ne gère que ce qu'il déclare — mais la zone cesserait
+    # d'être décrite ici, ce qui est précisément ce qu'on cherche à éviter.
+    # Ces enregistrements sont donc à importer, comme ceux de l'apex.
+    www = true
   }
 
   # "exemple-automatisation.fr" = {
