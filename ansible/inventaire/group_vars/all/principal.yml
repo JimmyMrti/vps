@@ -66,6 +66,25 @@ docker_reseau_exposition: edge
 # Domaine du site statique déjà en production.
 proxy_domaine_site: "{{ domaine_principal }}"
 
+# Conteneur et port vers lesquels le frontal renvoie le site statique.
+#
+# La valeur normale est celle de la pile de ce dépôt, qui épingle
+# `container_name: web`. Elle n'existe que pour la bascule : sur la machine,
+# le conteneur du site s'appelle encore `site-web`, un nom fabriqué par
+# Compose à partir du projet `site` et du service `web`.
+#
+# Sans cette variable, le frontal et la pile du site devraient être déployés
+# d'un seul geste, et un frontal arrivé en premier obtiendrait son certificat
+# puis répondrait 502 à tous les visiteurs. Avec elle, la bascule se fait en
+# deux temps vérifiables : brancher le conteneur existant sur le réseau
+# `edge`, démarrer le frontal sur `site-web:8080`, constater que le site
+# répond, puis déployer la pile cible et revenir ici au défaut.
+# Voir docs/migration-site-existant.md.
+#
+# Ne jamais la laisser vide : Caddy remplacerait la destination par rien et
+# refuserait la configuration.
+proxy_site_amont: "web:8080"
+
 # Domaine de n8n. Vide tant qu'il n'est pas acheté : le fichier de site
 # retombe alors sur n8n.localhost, pour lequel Caddy fabrique un certificat
 # interne sans rien demander à Let's Encrypt. Le service est donc monté mais

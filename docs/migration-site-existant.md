@@ -55,7 +55,14 @@ son propre volume, vide : il redemandera un certificat pour
 bascule qui échoue et qu'on recommence quatre fois épuise le quota, et il n'y
 a alors plus rien à faire qu'attendre sept jours — avec un site hors ligne.
 
-C'est la raison d'être de la répétition ci-dessous.
+**La parade est de ne rien redemander du tout :** recopier le contenu du
+volume de l'ancien frontal dans celui du nouveau avant son premier démarrage.
+Caddy y range les certificats *et* la clé de compte ACME ; il retrouve les
+siens, les considère valides, et ne s'adresse à Let's Encrypt qu'au
+renouvellement normal, dans un mois. Le quota n'est pas entamé, et la fenêtre
+de coupure se réduit au temps de démarrage d'un conteneur.
+
+C'est l'étape 2 ci-dessous, et c'est ce qui rend cette bascule raisonnable.
 
 ### 3. Le conteneur du site ne s'appelle pas pareil des deux côtés
 
@@ -71,9 +78,17 @@ ce qui fixe le nom au lieu de le laisser dépendre du nom du dossier. Les deux
 désignent le même service ; seul le nom visible change, et il change **au
 moment où la nouvelle pile du site démarre**.
 
-D'où la seule règle qui compte : à l'étape 5, le frontal et le site se
-déploient **ensemble**, `--tags proxy,site`. Jouer `--tags proxy` seul met en
-place un frontal qui pointe sur un conteneur qui n'existe pas encore.
+Ce nom est donc une variable, `proxy_site_amont`, passée au frontal sous
+`SITE_AMONT`. Le fichier de site lit `{$SITE_AMONT:web:8080}`.
+
+Sans elle, le frontal et la pile du site devraient être déployés d'un seul
+geste, en croisant les doigts. Avec elle, la bascule se coupe en deux moments
+que l'on vérifie séparément : d'abord le frontal seul, pointé sur le conteneur
+qui tourne déjà, ensuite la pile du site. C'est ce que fait l'étape 5, et
+c'est pour cela qu'elle est en deux temps.
+
+Ne la laissez jamais vide : Caddy remplacerait la destination par rien et
+refuserait la configuration.
 
 ### 4. Les fichiers de site en place importent un extrait nommé `commun`
 
@@ -252,9 +267,11 @@ frontal démarre et sert le site. Un `acme_ca` de test n'entame pas le quota.
 > navigateur refusera un certificat de test sans proposer de passer outre.
 > Vérifiez avec `curl` ou `openssl s_client`, jamais dans un navigateur.
 
-### Étape 2 — Sauvegarder les certificats actuels
+### Étape 2 — Sauvegarder, puis reprendre les certificats
 
-Cinq minutes qui peuvent éviter sept jours d'attente.
+Deux gestes, pas un. Le premier protège du pire, le second l'évite.
+
+**Sauvegarder**, pour avoir un retour arrière :
 
 ```bash
 docker run --rm \
@@ -275,7 +292,37 @@ Un volume qui n'existe pas n'est pas une erreur pour Docker : il le **crée**,
 vide. La commande réussit, l'archive fait quelques dizaines d'octets, et on
 s'en aperçoit après la bascule, c'est-à-dire trop tard. Une archive de moins
 d'un kilo-octet, ou sans chemin contenant `preventioncambriolage`, signifie
-que le nom du volume relevé à l'étape 0 est faux.
+que le nom du volume relevé à l'étape 0 est faux. **Ne continuez pas** tant
+que cette archive n'est pas crédible : tout ce qui suit en dépend.
+
+**Reprendre**, pour que le nouveau frontal ne demande rien du tout. À faire
+**avant** son premier démarrage, sinon il part sur un volume vide et
+redemande.
+
+```bash
+# Le nom vient du projet Compose, c'est-à-dire du dossier : /opt/vps/frontal
+# donne frontal_certificats. Le créer d'abord, pour que la copie ait une cible.
+docker volume create frontal_certificats
+
+docker run --rm \
+  -v /root/certificats-avant-bascule.tgz:/archive.tgz:ro \
+  -v frontal_certificats:/cible alpine \
+  tar xzf /archive.tgz -C /cible
+
+# Constater que les certificats sont bien là.
+docker run --rm -v frontal_certificats:/data:ro alpine \
+  find /data -name '*.crt' -o -name 'acme*' | head
+```
+
+On recopie le volume entier, pas seulement les certificats : Caddy y range
+aussi sa **clé de compte ACME**. La reprendre évite d'ouvrir un compte neuf
+chez Let's Encrypt, et garde l'historique des demandes attaché au même compte.
+
+> Cette reprise n'a pas été essayée sur la machine. Ce qui la rend crédible
+> est que les deux frontaux utilisent la même image, `caddy:2.8-alpine`, donc
+> la même disposition de `/data`. Si le nouveau frontal demandait malgré tout
+> un certificat au démarrage, `docker logs frontal` le dirait, et la
+> sauvegarde de l'étape précédente reste le filet.
 
 ### Étape 3 — Abaisser le TTL du DNS
 
@@ -298,31 +345,72 @@ les visiteurs.
 > session SSH ouverte : si quelque chose se passe mal, elle est votre seul
 > recours avant la console KVM.
 
-### Étape 5 — La bascule
+### Étape 5 — La bascule, en deux temps
 
-Les trois commandes se suivent sans pause. C'est la fenêtre de coupure.
+Le frontal et la pile du site changent séparément, et chaque moment se
+vérifie avant de passer au suivant. Un seul des deux coupe le service.
+
+#### 5a — Remplacer le frontal, sans toucher au site
+
+Le conteneur du site continue de tourner. On le branche sur le réseau du
+nouveau frontal, et on pointe celui-ci dessus.
 
 ```bash
-# 1. Libérer les ports 80 et 443. SANS -v : le volume des certificats reste.
+# 1. Rendre le conteneur du site joignable par le nouveau frontal.
+#    Un conteneur peut appartenir à plusieurs réseaux : l'ancien frontal
+#    continue de le voir par le sien.
+docker network connect edge site-web
+
+# 2. Pointer le frontal sur ce nom, le temps de la bascule.
+#    Dans ansible/inventaire/group_vars/all/principal.yml :
+#        proxy_site_amont: "site-web:8080"
+```
+
+Les trois commandes qui suivent se suivent sans pause. **C'est la fenêtre de
+coupure**, et la seule.
+
+```bash
+# 3. Libérer 80 et 443. SANS -v : le volume des certificats reste intact,
+#    c'est lui qui portera le retour arrière.
 cd "$PILE_ACTUELLE"
 docker compose -f "$COMPOSE_ACTUEL" down
 
-# 2. Monter le frontal et la nouvelle pile du site
+# 4. Monter le nouveau frontal, qui repart sur les certificats repris
 cd ~/vps
-ansible-playbook site.yml --tags proxy,site
+ansible-playbook site.yml --tags proxy
 
-# 3. Vérifier immédiatement
-curl -sI https://preventioncambriolage.fr/ | head -1     # attendu : HTTP/2 200
-curl -sI http://preventioncambriolage.fr/  | head -1     # attendu : 308
+# 5. Vérifier immédiatement
+curl -sI https://preventioncambriolage.fr/ | head -1       # attendu : HTTP/2 200
+curl -sI http://preventioncambriolage.fr/  | head -1       # attendu : 308
+curl -sI https://www.preventioncambriolage.fr/ | head -1   # attendu : 301
 ```
 
-Si le certificat tarde :
+Le site est servi par le nouveau frontal et l'ancien conteneur. Si quelque
+chose cloche, le retour arrière est à une commande, et l'ancienne pile n'a
+rien perdu.
+
+`docker logs -f frontal` doit être **silencieux sur l'ACME**. Un
+`obtaining certificate` signifie que la reprise de l'étape 2 n'a pas pris :
+arrêtez-vous là et revenez en arrière plutôt que d'entamer le quota.
+
+#### 5b — Remplacer la pile du site
+
+Sans coupure : les deux conteneurs coexistent, on ne fait que changer la
+destination du frontal.
 
 ```bash
-docker logs -f frontal
-```
+# 1. Monter la nouvelle pile. Elle crée le conteneur `web`, sans publier
+#    aucun port, sur le réseau edge.
+ansible-playbook site.yml --tags site
 
-`certificate obtained successfully` confirme l'émission.
+# 2. Revenir au défaut dans principal.yml :
+#        proxy_site_amont: "web:8080"
+ansible-playbook site.yml --tags proxy
+
+# 3. Vérifier, puis seulement après, arrêter l'ancien conteneur du site
+curl -sI https://preventioncambriolage.fr/ | head -1
+cd "$SITE_ACTUEL" && docker compose down
+```
 
 ### Étape 6 — Vérifier avant de nettoyer
 
@@ -359,6 +447,7 @@ jours : c'est le retour arrière le plus rapide qui existe.
 
 ```bash
 # Une fois la confiance établie, et pas avant :
+docker network disconnect edge site-web 2>/dev/null   # branchement de l'étape 5a
 docker volume rm "$VOLUME_CERTIFICATS"
 sudo rm -rf "$PILE_ACTUELLE" "$SITE_ACTUEL"
 sudo rm -f /root/maj-site.service.avant /root/maj-site.timer.avant
@@ -382,14 +471,19 @@ Remettre `ttl = 3600`.
 
 Tant que l'étape 7 n'est pas faite :
 
+Les gestes 1 et 3 ne servent que si l'étape 5b a été jouée : avant elle, la
+nouvelle pile du site n'existe pas et les unités n'ont pas été écrasées. Les
+passer quand ils ne s'appliquent pas ne casse rien, et les oublier quand ils
+s'appliquent laisse deux piles du même site en marche.
+
 ```bash
 # 1. Couper le minuteur de la NOUVELLE pile. Sans cela, il redémarre celle-ci
 #    toutes les dix minutes, en parallèle de l'ancienne qu'on remonte.
 sudo systemctl disable --now maj-site.timer
 
-# 2. Arrêter le nouveau frontal et la nouvelle pile du site
+# 2. Arrêter le nouveau frontal et, s'il existe, la nouvelle pile du site
 docker compose -f /opt/vps/frontal/compose.yml down
-docker compose -f /opt/vps/site/compose.yml down
+[ -f /opt/vps/site/compose.yml ] && docker compose -f /opt/vps/site/compose.yml down
 
 # 3. Rendre à l'ancienne pile son minuteur, que la bascule a écrasé
 sudo cp -a /root/maj-site.service.avant /etc/systemd/system/maj-site.service
@@ -404,7 +498,7 @@ docker compose -f "$COMPOSE_ACTUEL" up -d
 
 Le site repart sur ses anciens certificats, qui sont toujours valides.
 
-> Ces deux variables viennent de l'étape 0. Un retour arrière se joue sous
+> Ces variables viennent toutes de l'étape 0. Un retour arrière se joue sous
 > pression, souvent depuis une autre session que celle de la bascule, où elles
 > ne sont plus définies. **Écrivez-les quelque part avant de commencer**, en
 > clair, sur la même page que le reste de vos notes de bascule.
