@@ -36,7 +36,7 @@ mises à jour.
 
 ---
 
-## Les quatre pièges
+## Les cinq pièges
 
 ### 1. Deux Caddy ne peuvent pas tenir le port 443
 
@@ -89,6 +89,52 @@ est refusé. L'échec arrive pendant le déploiement, pas devant les visiteurs.
 Il reste à faire la correspondance à la main, extrait par extrait, en lisant
 ce que `commun` contient réellement — un réglage qui s'y trouve et que le
 socle ne reprend pas serait perdu en silence.
+
+### 5. Les unités systemd portent le même nom des deux côtés
+
+La mise à jour automatique du site est aujourd'hui assurée par
+`maj-site.timer` et `maj-site.service`. Le rôle `maj_service` du socle nomme
+les siennes à partir de `maj_nom`, qui vaut `site` : **exactement les mêmes
+noms de fichiers**, dans le même `/etc/systemd/system/`.
+
+C'est une bonne nouvelle pour la bascule et un piège pour le retour arrière.
+
+Bonne nouvelle : aucun minuteur orphelin ne survit. Sans cela, l'ancien
+minuteur continuerait de se déclencher toutes les dix minutes après la
+bascule et relèverait l'ancienne pile tout seul — une bascule qui se défait
+d'elle-même dans le quart d'heure, sans que personne ait rien fait.
+
+Piège : à la seconde où `--tags site` s'exécute, le fichier d'unité de
+production est **écrasé** et pointe sur `/opt/vps/site/maj.sh`.
+L'ancienne pile, si on y revient, revient sans son minuteur, pendant que le
+nouveau continue de démarrer la nouvelle pile toutes les dix minutes. Deux
+piles du même site tournent alors en parallèle et personne ne comprend
+pourquoi.
+
+D'où deux gestes : **copier les deux fichiers d'unité avant la bascule**
+(étape 0), et **arrêter le nouveau minuteur avant de remonter l'ancienne
+pile** (retour arrière).
+
+---
+
+## Une note sur `/opt` contre `/srv`
+
+L'arborescence de déploiement de la machine est sous `/srv/` — `/srv/proxy/`,
+`/srv/preventioncambriolage/` — là où la documentation du dépôt du site
+annonce `/opt/`. Le socle, lui, écrit sous `/opt/vps/`.
+
+Ce n'est pas aligné, et ce n'est pas un oubli. `/srv` n'est la décision de
+personne : c'est là que la machine a dérivé, sans que rien ne l'écrive. Adopter
+une dérive comme convention parce qu'elle existe, c'est lui donner après coup
+une autorité qu'elle n'a jamais eue. Le socle fixe donc une racine unique et
+la déclare : `vps_racine`, une seule variable, changeable d'une ligne si vous
+préférez `/srv/vps`.
+
+Ce qui compte pour la bascule n'est pas le choix mais sa conséquence :
+**l'ancienne arborescence est ailleurs, donc rien n'est écrasé et tout reste
+orphelin.** Les deux dossiers `/srv/proxy/` et `/srv/preventioncambriolage/`
+survivent à la bascule, et c'est l'étape 7 qui s'en occupe — pas l'un des
+deux, les deux.
 
 ---
 
@@ -170,6 +216,24 @@ Si ces fichiers décrivent des domaines ou des réglages que `edge/sites/` du
 dépôt ne reprend pas, **la bascule les perd**. Ils doivent être portés dans le
 dépôt avant l'étape 5, pas après : le socle déploie `edge/sites/` et supprime
 du serveur tout fichier de site absent du dépôt.
+
+Enfin, mettre de côté les unités systemd de la mise à jour automatique, que la
+bascule va écraser puisqu'elle leur donne les mêmes noms :
+
+```bash
+sudo cp -a /etc/systemd/system/maj-site.service /root/maj-site.service.avant
+sudo cp -a /etc/systemd/system/maj-site.timer   /root/maj-site.timer.avant
+systemctl list-timers --all | grep -i maj   # voir s'il y en a d'autres
+sudo systemctl cat maj-site.service | grep -E 'ExecStart|WorkingDirectory'
+```
+
+Ce `grep` donne au passage la seconde arborescence à relever : le dossier de la
+pile du **site**, distinct de celui du frontal — `/srv/preventioncambriolage/`
+d'après le dernier relevé.
+
+```bash
+SITE_ACTUEL=<le dossier relevé ci-dessus>
+```
 
 ### Étape 1 — Éprouver ailleurs
 
@@ -284,8 +348,13 @@ jours : c'est le retour arrière le plus rapide qui existe.
 ```bash
 # Une fois la confiance établie, et pas avant :
 docker volume rm "$VOLUME_CERTIFICATS"
-sudo rm -rf "$PILE_ACTUELLE"
+sudo rm -rf "$PILE_ACTUELLE" "$SITE_ACTUEL"
+sudo rm -f /root/maj-site.service.avant /root/maj-site.timer.avant
 ```
+
+Les **deux** dossiers, pas un seul : le frontal et le site ont chacun le leur.
+Oublier le second laisse une pile complète, arrêtée, que la prochaine personne
+prendra pour la pile en service.
 
 > `rm -rf` sur un chemin relevé par une commande mérite un regard avant la
 > touche entrée. `/srv/proxy` n'est pas `/opt/preventioncambriolage` : si
@@ -302,9 +371,21 @@ Remettre `ttl = 3600`.
 Tant que l'étape 7 n'est pas faite :
 
 ```bash
-cd ~/vps && ansible-playbook site.yml --tags proxy --extra-vars "proxy_arret=true"
-docker compose -f /opt/vps/frontal/compose.yml down
+# 1. Couper le minuteur de la NOUVELLE pile. Sans cela, il redémarre celle-ci
+#    toutes les dix minutes, en parallèle de l'ancienne qu'on remonte.
+sudo systemctl disable --now maj-site.timer
 
+# 2. Arrêter le nouveau frontal et la nouvelle pile du site
+docker compose -f /opt/vps/frontal/compose.yml down
+docker compose -f /opt/vps/site/compose.yml down
+
+# 3. Rendre à l'ancienne pile son minuteur, que la bascule a écrasé
+sudo cp -a /root/maj-site.service.avant /etc/systemd/system/maj-site.service
+sudo cp -a /root/maj-site.timer.avant   /etc/systemd/system/maj-site.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now maj-site.timer
+
+# 4. Remonter l'ancienne pile
 cd "$PILE_ACTUELLE"
 docker compose -f "$COMPOSE_ACTUEL" up -d
 ```
