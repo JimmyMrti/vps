@@ -312,7 +312,20 @@ docker run --rm \
 # Constater que les certificats sont bien là.
 docker run --rm -v frontal_certificats:/data:ro alpine \
   find /data -name '*.crt' -o -name 'acme*' | head
+
+# Et constater les DROITS, qui comptent autant que le contenu.
+docker run --rm -v frontal_certificats:/data:ro alpine ls -lan /data /data/caddy
 ```
+
+Ce dernier contrôle mérite d'être fait, parce que ce qu'il attrape ne se voit
+pas autrement. Caddy veut `/data/caddy` à lui, en `0700`. Une copie qui
+arriverait avec d'autres droits ou un autre propriétaire **démarre très bien**
+et ne se plaint de rien : l'échec vient à la première écriture, c'est-à-dire au
+premier renouvellement, dans deux mois, sur un site en production. Les deux
+commandes ci-dessus s'exécutent en root dans le conteneur et `tar` restitue
+propriétaire et mode depuis l'archive, donc le cas normal est bon — mais une
+archive déballée ailleurs, à la main, par un compte ordinaire, perdrait les
+deux sans rien dire.
 
 On recopie le volume entier, pas seulement les certificats : Caddy y range
 aussi sa **clé de compte ACME**. La reprendre évite d'ouvrir un compte neuf
