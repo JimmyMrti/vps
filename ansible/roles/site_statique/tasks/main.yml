@@ -1,0 +1,55 @@
+---
+# ===========================================================================
+# Site statique preventioncambriolage.fr.
+#
+# Ce service est DÉJÀ EN PRODUCTION. Ce rôle ne l'installe pas, il reprend sa
+# configuration à l'identique et la place sous gestion du dépôt. Deux
+# différences avec l'existant, et elles sont voulues :
+#
+#   1. Le site n'embarque plus son propre Caddy : la terminaison TLS est
+#      mutualisée dans le rôle `proxy`. C'est ce qui permet d'ajouter n8n et
+#      l'annuaire sans second point d'entrée.
+#   2. Les fichiers ne sont plus déposés par scp mais écrits par Ansible.
+#
+# La bascule du premier point n'est pas anodine : elle change de conteneur
+# Caddy, donc de volume de certificats. La procédure est dans
+# docs/migration-site-existant.md, à lire AVANT de jouer ce rôle sur la
+# machine de production.
+#
+# Le modèle de déploiement, lui, ne change pas : le serveur va chercher son
+# image, GitHub n'a aucun accès à la machine.
+# ===========================================================================
+
+- name: Créer l'arborescence du site
+  ansible.builtin.file:
+    path: "{{ site_dossier }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Déposer la pile du site
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ site_dossier }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  register: site_pile
+
+- name: Démarrer le site
+  community.docker.docker_compose_v2:
+    project_src: "{{ site_dossier }}"
+    state: present
+    pull: always
+
+- name: Installer la mise à jour automatique en mode « pull »
+  ansible.builtin.include_role:
+    name: maj_service
+  vars:
+    maj_nom: site
+    maj_dossier: "{{ site_dossier }}"
+    maj_image: "{{ site_image }}"
+    maj_compose_service: web
+    maj_intervalle: "{{ site_intervalle_maj }}"
+    maj_description: "Mise a jour du site preventioncambriolage"

@@ -1,0 +1,17 @@
+---
+# Inventaire de production.
+#
+# L'IP se lit dans la sortie Terraform :  terraform output inventaire_ansible
+# Ne mettez aucun secret ici : ils vivent dans group_vars/all/coffre.yml,
+# chiffré avec ansible-vault.
+
+all:
+  children:
+    vps:
+      hosts:
+        vps-ovh:
+          # À renseigner. Aucune valeur par défaut volontairement : une IP
+          # fausse par défaut, c'est un playbook qui se joue sur le mauvais hôte.
+          ansible_host: "CHANGEZ_MOI"
+          ansible_user: ubuntu
+          ansible_port: 22

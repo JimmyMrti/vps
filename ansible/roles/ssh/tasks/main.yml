@@ -1,0 +1,97 @@
+---
+# ===========================================================================
+# Durcissement du serveur SSH.
+#
+# C'est la mesure la plus rentable de tout le socle : un VPS exposé reçoit
+# des milliers de tentatives par jour, presque toutes contre des mots de passe.
+#
+# Cadre : ANSSI, « Recommandations pour un usage sécurisé d'(Open)SSH ».
+# ===========================================================================
+
+- name: Déposer la configuration de durcissement
+  ansible.builtin.template:
+    src: 99-durcissement.conf.j2
+    dest: /etc/ssh/sshd_config.d/99-durcissement.conf
+    owner: root
+    group: root
+    mode: "0600"
+    # sshd -t refuse d'écrire une configuration invalide. Sans cette
+    # validation, une faute de frappe coupe l'accès à la machine au
+    # rechargement suivant, sans autre recours que la console KVM.
+    validate: "/usr/sbin/sshd -t -f %s"
+  notify: Recharger sshd
+
+# --- Clés d'hôte ------------------------------------------------------------
+#
+# Les clés DSA et ECDSA ne sont plus recommandées. Une clé RSA de moins de
+# 3072 bits non plus. On ne garde que Ed25519 et RSA 4096.
+
+- name: Vérifier la présence de la clé d'hôte Ed25519
+  ansible.builtin.stat:
+    path: /etc/ssh/ssh_host_ed25519_key
+  register: ssh_cle_ed25519
+
+- name: Générer la clé d'hôte Ed25519 si elle manque
+  ansible.builtin.command: ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''
+  when: not ssh_cle_ed25519.stat.exists
+  notify: Recharger sshd
+  changed_when: true
+
+- name: Retirer les clés d'hôte à algorithme obsolète
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/ssh/ssh_host_dsa_key
+    - /etc/ssh/ssh_host_dsa_key.pub
+    - /etc/ssh/ssh_host_ecdsa_key
+    - /etc/ssh/ssh_host_ecdsa_key.pub
+  notify: Recharger sshd
+
+- name: Durcir les droits des clés privées d'hôte
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - /etc/ssh/ssh_host_ed25519_key
+    - /etc/ssh/ssh_host_rsa_key
+  failed_when: false
+
+# --- Le moduli de Diffie-Hellman --------------------------------------------
+#
+# Le fichier livré par la distribution contient des groupes courts. Un groupe
+# de moins de 3072 bits affaiblit l'échange de clés pour les clients qui le
+# négocient.
+
+- name: Relever les groupes Diffie-Hellman courts
+  ansible.builtin.shell:
+    cmd: "set -o pipefail; awk '$5 < 3071' /etc/ssh/moduli | wc -l"
+    executable: /bin/bash
+  changed_when: false
+  register: ssh_moduli_courts
+
+- name: Retirer les groupes Diffie-Hellman de moins de 3072 bits
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      awk '$5 >= 3071' /etc/ssh/moduli > /etc/ssh/moduli.tmp
+      # Ne jamais laisser un moduli vide : sshd refuserait de démarrer.
+      if [ -s /etc/ssh/moduli.tmp ]; then
+        mv /etc/ssh/moduli.tmp /etc/ssh/moduli
+      else
+        rm -f /etc/ssh/moduli.tmp
+        echo "moduli vide apres filtrage : inchange" >&2
+        exit 1
+      fi
+    executable: /bin/bash
+  when: ssh_moduli_courts.stdout | int > 0
+  changed_when: true
+  notify: Recharger sshd
+
+- name: Activer et démarrer sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    enabled: true
+    state: started

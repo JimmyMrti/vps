@@ -1,0 +1,122 @@
+---
+# ===========================================================================
+# Configuration du VPS.
+#
+# Rien de secret ici — les secrets sont dans coffre.yml, chiffré. Tout ce qui
+# suit est public et versionné.
+#
+# Les noms (réseau « edge », arborescence /opt/vps) sont ceux du contrat passé
+# avec le fil des services applicatifs. Voir docs/architecture.md.
+# ===========================================================================
+
+# --- Identité ---------------------------------------------------------------
+domaine_principal: preventioncambriolage.fr
+courriel_administrateur: "contact@{{ domaine_principal }}"
+
+# --- Compte d'administration ------------------------------------------------
+# Le compte OVH par défaut est `ubuntu`. On garde ce nom : le renommer
+# n'apporte rien contre un balayage automatisé, qui essaie de toute façon
+# root, admin, ubuntu, debian et une centaine d'autres.
+admin_utilisateur: ubuntu
+
+# Clés publiques autorisées. Ed25519 uniquement.
+# Une clé retirée d'ici est retirée du serveur au prochain passage.
+admin_cles_ssh:
+  - "ssh-ed25519 AAAA_REMPLACEZ_PAR_VOTRE_CLE_PUBLIQUE commentaire"
+
+# --- Système ----------------------------------------------------------------
+systeme_fuseau_horaire: Europe/Paris
+systeme_locale: fr_FR.UTF-8
+systeme_nom_hote: vps-ovh
+
+# --- SSH --------------------------------------------------------------------
+ssh_port: 22
+# Restreindre la connexion à des adresses connues est la mesure la plus
+# efficace qui reste. Vide = ouvert à tous (le cas si l'IP est dynamique).
+ssh_adresses_autorisees: []
+
+# --- Pare-feu ---------------------------------------------------------------
+# Interface publique. Détectée automatiquement, cette valeur n'est qu'un repli.
+pare_feu_interface_publique: eth0
+
+# Les seuls ports ouverts depuis l'extérieur.
+# 80 n'est pas décoratif : il porte le challenge ACME à chaque renouvellement.
+pare_feu_ports_ouverts:
+  - { port: 22, protocole: tcp, raison: "SSH" }
+  - { port: 80, protocole: tcp, raison: "HTTP — redirection et challenge ACME" }
+  - { port: 443, protocole: tcp, raison: "HTTPS" }
+  - { port: 443, protocole: udp, raison: "HTTP/3 (QUIC)" }
+
+# --- Arborescence et réseau -------------------------------------------------
+# Tout vit sous /opt/vps. Une seule racine, sauvegardée et auditée d'un bloc.
+vps_racine: /opt/vps
+
+# Réseau d'exposition partagé : le seul que le frontal rejoint. Chaque pile a
+# en plus son réseau interne, auquel le frontal n'a pas accès.
+docker_reseau_exposition: edge
+
+# --- Frontal ----------------------------------------------------------------
+# Les domaines servis sont décrits un par fichier dans edge/sites/*.caddy
+# (fournis par le fil des services). Le frontal ne fait que les importer et
+# leur passer ces variables.
+#
+# Jim a tranché : aucun sous-domaine de preventioncambriolage.fr, chaque
+# service a un domaine séparé. Voir docs/adr/0005-un-domaine-par-service.md.
+
+# Domaine du site statique déjà en production.
+proxy_domaine_site: "{{ domaine_principal }}"
+
+# Conteneur et port vers lesquels le frontal renvoie le site statique.
+#
+# La valeur normale est celle de la pile de ce dépôt, qui épingle
+# `container_name: web`. Elle n'existe que pour la bascule : sur la machine,
+# le conteneur du site s'appelle encore `site-web`, un nom fabriqué par
+# Compose à partir du projet `site` et du service `web`.
+#
+# Sans cette variable, le frontal et la pile du site devraient être déployés
+# d'un seul geste, et un frontal arrivé en premier obtiendrait son certificat
+# puis répondrait 502 à tous les visiteurs. Avec elle, la bascule se fait en
+# deux temps vérifiables : brancher le conteneur existant sur le réseau
+# `edge`, démarrer le frontal sur `site-web:8080`, constater que le site
+# répond, puis déployer la pile cible et revenir ici au défaut.
+# Voir docs/migration-site-existant.md.
+#
+# Ne jamais la laisser vide : Caddy remplacerait la destination par rien et
+# refuserait la configuration.
+proxy_site_amont: "web:8080"
+
+# Domaine de n8n. Vide tant qu'il n'est pas acheté : le fichier de site
+# retombe alors sur n8n.localhost, pour lequel Caddy fabrique un certificat
+# interne sans rien demander à Let's Encrypt. Le service est donc monté mais
+# inactif publiquement, ce qui est le bon état par défaut.
+#
+# Le nom générique du VPS (vpsXXXXXX.ovh.net) a été envisagé puis écarté :
+# ovh.net n'est pas dans la Public Suffix List, donc un certificat pris dessus
+# compte sur le plafond partagé de tout ovh.net, et la zone n'est pas la
+# nôtre. Voir docs/adr/0005-un-domaine-par-service.md.
+proxy_domaine_n8n: ""
+
+# Adresses autorisées sur l'interface d'administration de n8n.
+# Vide = 192.0.2.1, adresse de documentation : personne n'entre, et l'accès
+# se fait par tunnel SSH. C'est le comportement voulu par défaut.
+proxy_n8n_ip_admin: ""
+
+# Domaine de l'annuaire. Vide tant qu'il n'existe pas : le fichier de site
+# retombe alors sur annuaire.localhost, donc inactif publiquement.
+proxy_domaine_annuaire: ""
+proxy_annuaire_ip_prive: ""
+
+# Bascule le frontal sur le serveur ACME de test. À mettre à true pour tout
+# essai sur un nouveau domaine : le quota Let's Encrypt est de cinq
+# certificats identiques par semaine, et il se consomme vite.
+proxy_acme_essai: false
+
+# --- Site statique ----------------------------------------------------------
+site_image: "ghcr.io/jimmymrti/preventioncambriolage:latest"
+
+# --- Journalisation ---------------------------------------------------------
+journal_taille_maximale: "512M"
+journal_retention: "60day"
+
+# --- Seuils de contrôle -----------------------------------------------------
+disque_seuil_alerte_pourcent: 80

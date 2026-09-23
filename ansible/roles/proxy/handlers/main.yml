@@ -1,0 +1,5 @@
+---
+- name: Relancer le frontal
+  community.docker.docker_compose_v2:
+    project_src: "{{ proxy_dossier }}"
+    state: restarted

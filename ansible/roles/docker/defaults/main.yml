@@ -1,0 +1,5 @@
+---
+# Nom de version Ubuntu utilisé si Docker ne publie pas encore pour celle de
+# la machine. « noble » = 24.04 LTS, la dernière pour laquelle le dépôt est
+# certainement peuplé.
+docker_version_repli: noble

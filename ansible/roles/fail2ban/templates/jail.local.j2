@@ -1,0 +1,40 @@
+# {{ ansible_managed }}
+
+[DEFAULT]
+# Les bannissements se posent dans nftables, pas dans iptables : l'hôte est
+# tenu par nftables et mélanger les deux rend le jeu de règles illisible.
+banaction     = nftables[type=allports]
+banaction_allports = nftables[type=allports]
+chain         = entree
+
+backend       = systemd
+
+# Une heure au premier manquement, puis l'escalade fait le reste.
+bantime       = 1h
+findtime      = 10m
+maxretry      = 5
+
+# Bannissement croissant : une adresse qui revient est bannie plus longtemps,
+# jusqu'à une semaine. C'est ce qui fait la différence entre gêner un
+# balayage et l'arrêter.
+bantime.increment  = true
+bantime.factor     = 2
+bantime.maxtime    = 1w
+
+# Ne jamais se bannir soi-même.
+ignoreself    = true
+ignoreip      = 127.0.0.1/8 ::1 172.16.0.0/12 10.0.0.0/8
+destemail     = {{ courriel_administrateur }}
+
+[sshd]
+enabled  = true
+port     = {{ ssh_port }}
+# `aggressive` attrape aussi les connexions fermées avant authentification,
+# c'est-à-dire l'essentiel du balayage automatisé.
+mode     = aggressive
+maxretry = 3
+
+# Les jails du frontal HTTP sont déposées séparément dans
+# /etc/fail2ban/jail.d/ par le fil des services. Elles doivent utiliser une
+# action visant DOCKER-USER : l'action ci-dessus n'agit que sur le trafic
+# destiné à l'hôte.

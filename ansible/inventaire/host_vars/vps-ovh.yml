@@ -1,0 +1,48 @@
+---
+# Caractéristiques de la machine, telles que commandées chez OVH.
+# Renseignées par Jim le 21 septembre 2026.
+#
+# Elles ne sont pas décoratives : les limites de ressources des piles
+# applicatives en découlent, et un dépassement se paie en OOM killer, donc
+# en site indisponible.
+
+vps_gamme: "VPS 2"
+vps_vcores: 4
+vps_memoire_go: 8
+vps_disque_go: 75
+vps_systeme: "Ubuntu 26.04"
+
+# Nom générique attribué par OVH, de la forme « vpsXXXXXX.ovh.net ».
+# Visible dans l'espace client, onglet VPS. Sert à joindre la machine avant
+# que le DNS ne soit en place — pas à servir un site : ovh.net n'est pas dans
+# la Public Suffix List, donc un certificat pris dessus dépend du plafond
+# partagé de tout ovh.net, sur une zone qui n'est pas la nôtre.
+vps_nom_ovh: "vps00000000.ovh.net"
+
+# --- Répartition de la mémoire ----------------------------------------------
+#
+# 8 Go au total. On en laisse volontairement environ 2 au système, au cache
+# de fichiers et aux pics : une machine qui tourne à 100 % de mémoire engagée
+# n'a plus de marge le jour où un traitement sort de l'ordinaire.
+#
+#   site statique (nginx)   ~64 Mo, négligeable
+#   Caddy                   ~128 Mo
+#   n8n                     1,5 Go   (Node, et les exécutions sont gourmandes)
+#   Postgres n8n            1 Go
+#   annuaire + sa base      2 Go     (réservé, pas encore déployé)
+#   ------------------------------------------------
+#   engagé                  ~4,7 Go sur 8
+
+memoire_limite_caddy: "256m"
+memoire_limite_site: "128m"
+
+# Les limites des piles applicatives (n8n, annuaire) sont fixées par le fil
+# des services, dans docs/services/dimensionnement.md. Elles ne sont pas
+# reprises ici pour n'avoir qu'un seul endroit où les lire.
+
+# --- Disque -----------------------------------------------------------------
+#
+# 75 Go, dont il faut retrancher le système, les images Docker et les
+# journaux. C'est la ressource qui serrera en premier, d'où le ménage
+# hebdomadaire des images dans le rôle docker.
+disque_seuil_alerte_pourcent: 80

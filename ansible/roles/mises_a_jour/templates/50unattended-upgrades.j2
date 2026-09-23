@@ -1,0 +1,38 @@
+// {{ ansible_managed }}
+
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+    // Les mises à jour ordinaires (-updates) ne sont pas incluses : elles
+    // apportent des changements de comportement, pas des correctifs de
+    // sécurité, et un serveur qui change de comportement tout seul la nuit
+    // est difficile à diagnostiquer au matin.
+};
+
+// Docker est volontairement absent de la liste. Ses mises à jour redémarrent
+// le démon, donc tous les conteneurs. À faire sciemment, pas à 4 h du matin.
+Unattended-Upgrade::Package-Blacklist {
+    "docker-ce";
+    "docker-ce-cli";
+    "containerd.io";
+};
+
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Redémarrage si un correctif l'exige, à une heure creuse.
+// Le site se relève seul : les conteneurs sont en `restart: unless-stopped`.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+
+Unattended-Upgrade::Mail "{{ courriel_administrateur }}";
+Unattended-Upgrade::MailReport "on-change";
+
+Unattended-Upgrade::SyslogEnable "true";
+Unattended-Upgrade::SyslogFacility "daemon";

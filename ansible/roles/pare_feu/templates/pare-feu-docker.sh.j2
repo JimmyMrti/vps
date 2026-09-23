@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Filtrage du trafic entrant vers les conteneurs.
+#
+# POURQUOI CE FICHIER EXISTE
+#
+# Quand un conteneur publie un port, Docker écrit lui-même une règle DNAT et
+# une règle d'acceptation dans netfilter. Ces règles sont évaluées avant celles
+# de l'hôte : le pare-feu de l'hôte ne les voit pas passer. Un service qui
+# publie un port est donc joignable depuis l'Internet entier, même avec un
+# pare-feu affichant trois ports ouverts.
+#
+# Docker réserve une chaîne pour nous : DOCKER-USER. Elle est traversée avant
+# ses propres règles d'acceptation, et Docker ne l'efface jamais. C'est le seul
+# point d'accroche fiable.
+#
+# CE QUE FAIT CE SCRIPT
+#
+# Il refuse tout trafic venant de l'interface publique vers un conteneur, sauf
+# vers les ports explicitement listés. Le reverse proxy garde 80 et 443 ; tout
+# le reste est injoignable de l'extérieur, qu'on ait pensé ou non à ne pas le
+# publier.
+#
+# Autrement dit : la règle « ne publiez jamais un port » reste la bonne
+# pratique, et ceci est le filet qui rattrape le jour où on l'oublie.
+
+set -euo pipefail
+
+INTERFACE="{{ pare_feu_interface }}"
+
+# iptables-nft sur Ubuntu récent : même sous-système que nftables, autre outil.
+IPT="iptables"
+IPT6="ip6tables"
+
+chaine_prete() {
+  local outil="$1"
+  # La chaîne est créée par Docker. Si elle manque, Docker n'a pas encore
+  # démarré : l'unité systemd le garantit, mais on ne parie pas dessus.
+  "$outil" -N DOCKER-USER 2>/dev/null || true
+  "$outil" -F DOCKER-USER
+}
+
+poser_regles() {
+  local outil="$1"
+
+  chaine_prete "$outil"
+
+  # Les réponses aux connexions sortantes des conteneurs doivent passer.
+  "$outil" -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+
+  # Le trafic qui ne vient pas de l'extérieur n'est pas concerné :
+  # conteneur à conteneur, et hôte vers conteneur.
+  "$outil" -A DOCKER-USER ! -i "$INTERFACE" -j RETURN
+
+  # Les ports que l'on accepte d'exposer par conteneur.
+{% for regle in pare_feu_ports_ouverts %}
+{% if regle.port != ssh_port %}
+  # {{ regle.raison }}
+  "$outil" -A DOCKER-USER -i "$INTERFACE" -p {{ regle.protocole }} --dport {{ regle.port }} -j RETURN
+{% endif %}
+{% endfor %}
+
+  # Tout le reste venant de l'extérieur est refusé, publié ou non.
+  "$outil" -A DOCKER-USER -i "$INTERFACE" \
+      -m limit --limit 5/min --limit-burst 10 \
+      -j LOG --log-prefix "docker-refus " --log-level 6
+  "$outil" -A DOCKER-USER -i "$INTERFACE" -j DROP
+
+  # DOCKER-USER se termine par un RETURN implicite ; les règles ci-dessus
+  # couvrent tous les cas avant d'y arriver.
+}
+
+poser_regles "$IPT"
+poser_regles "$IPT6"
+
+echo "Filtrage Docker en place sur ${INTERFACE}."

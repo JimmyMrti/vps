@@ -1,0 +1,5 @@
+---
+proxy_dossier: "{{ vps_racine }}/frontal"
+proxy_image: "caddy:2.8-alpine"
+# Dossier du dépôt contenant un fichier de site par domaine.
+proxy_source_sites: "{{ playbook_dir }}/../edge/sites"

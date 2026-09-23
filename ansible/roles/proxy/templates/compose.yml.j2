@@ -1,0 +1,65 @@
+# {{ ansible_managed }}
+#
+# Le seul service du serveur qui publie des ports.
+
+services:
+  caddy:
+    image: {{ proxy_image }}
+    container_name: frontal
+    restart: unless-stopped
+    env_file: .env
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      # Les certificats doivent survivre aux redéploiements.
+      # NE JAMAIS lancer `docker compose down -v` ici : le volume disparaîtrait
+      # et chaque domaine devrait redemander un certificat, quota compris.
+      - certificats:/data
+      - configuration:/config
+      # Journal d'accès, lu par fail2ban et soumis à rotation.
+      - /var/log/caddy:/var/log/caddy
+
+    networks:
+      - {{ docker_reseau_exposition }}
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+    cap_add:
+      # Caddy écoute sur 80 et 443, sous 1024 : sans cette capacité il ne peut
+      # pas s'y lier. C'est la seule accordée, et elle ne donne rien d'autre
+      # que le droit d'ouvrir un port privilégié.
+      - NET_BIND_SERVICE
+
+    mem_limit: {{ memoire_limite_caddy | default('256m') }}
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  {{ docker_reseau_exposition }}:
+    external: true
+
+volumes:
+  certificats:
+    name: frontal_certificats
+  configuration:
+    name: frontal_configuration

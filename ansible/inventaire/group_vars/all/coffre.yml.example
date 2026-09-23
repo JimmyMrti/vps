@@ -1,0 +1,43 @@
+---
+# ===========================================================================
+# Modèle du coffre. À copier en coffre.yml PUIS à chiffrer :
+#
+#   cp coffre.yml.example coffre.yml
+#   $EDITOR coffre.yml
+#   ansible-vault encrypt coffre.yml
+#
+# Un `coffre.yml` en clair ne doit jamais être commité. Vérifiez avant de
+# pousser :  head -1 coffre.yml  doit afficher $ANSIBLE_VAULT;1.1;AES256
+# ===========================================================================
+
+# --- Registre d'images GitHub ----------------------------------------------
+# Jeton personnel classique, une seule case cochée : read:packages.
+# Rien d'autre. Un jeton en lecture ne peut ni modifier le code, ni publier.
+coffre_ghcr_utilisateur: "jimmymrti"
+coffre_ghcr_jeton: "ghp_REMPLACEZ_MOI"
+
+# --- n8n --------------------------------------------------------------------
+# Chiffre les identifiants que n8n stocke pour ses connecteurs.
+# PERDRE CETTE CLÉ REND TOUS LES IDENTIFIANTS ENREGISTRÉS ILLISIBLES,
+# y compris dans les sauvegardes. Générer avec :  openssl rand -hex 32
+coffre_n8n_cle_chiffrement: "REMPLACEZ_MOI"
+
+# Il n'y a volontairement PAS de mot de passe d'interface ici : depuis la
+# version 1, n8n n'a plus d'authentification par variable d'environnement. Le
+# compte propriétaire se crée à la première connexion, dans l'interface, et
+# son mot de passe a sa place dans un gestionnaire de mots de passe — pas dans
+# un fichier que le serveur peut lire.
+
+# Base de données n8n. Générer avec :  openssl rand -base64 24
+coffre_n8n_postgres_mot_de_passe: "REMPLACEZ_MOI"
+
+# --- Sauvegardes ------------------------------------------------------------
+# Phrase secrète du dépôt restic. Même remarque que pour la clé n8n :
+# sans elle, les sauvegardes sont définitivement illisibles.
+# À conserver hors du serveur, dans un gestionnaire de mots de passe.
+coffre_sauvegarde_phrase: "REMPLACEZ_MOI"
+
+# Identifiants S3 du stockage objet OVH (utilisateur dédié, accès au seul
+# conteneur de sauvegarde).
+coffre_sauvegarde_s3_cle: "REMPLACEZ_MOI"
+coffre_sauvegarde_s3_secret: "REMPLACEZ_MOI"
