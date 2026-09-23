@@ -1,0 +1,93 @@
+# preventioncambriolage.fr — site statique déjà en production.
+#
+# Le fichier réellement en service a été relevé le 22 septembre 2026 ; il vit
+# dans /srv/proxy/sites/ sur la machine, et le voici en entier :
+#
+#   preventioncambriolage.fr {
+#           import commun
+#           reverse_proxy site-web:8080
+#   }
+#
+#   www.preventioncambriolage.fr {
+#       redir https://preventioncambriolage.fr{uri} permanent
+#   }
+#
+# Il ne reste donc qu'une seule inconnue, mais elle est entière : le contenu de
+# l'extrait `commun`. Tout le reste de l'original est ici. Voir README.md pour
+# la correspondance ligne à ligne à faire avant de déployer.
+#
+# Deux écarts volontaires avec l'original, à connaître avant de comparer :
+#   - l'original écrit le domaine en clair, ce fichier passe par
+#     {$SITE_DOMAIN} dont le défaut est ce même domaine : à l'exécution, c'est
+#     le même nom ;
+#   - le bloc www de l'original n'importe rien du tout, donc il ne sert ni
+#     HSTS ni en-tête de sécurité. Ici il importe les mêmes extraits que le
+#     domaine nu. C'est un durcissement assumé, pas une transcription.
+#
+# Ce fichier remplace le Caddy embarqué dans la pile du site. La bascule est
+# décrite dans docs/services/README.md : tant que l'ancien Caddy tient les
+# ports 80 et 443, le frontal mutualisé ne démarre pas.
+#
+# Le conteneur `web` continue d'écouter en HTTP simple sur 8080, sans port
+# publié, exactement comme aujourd'hui. Rien ne change dans l'image du site.
+
+{$SITE_DOMAIN:preventioncambriolage.fr} {
+	import tls_anssi
+	import entetes_securite
+	import journal_acces
+
+	encode zstd gzip
+
+	# Caddy transmet X-Forwarded-Proto et X-Forwarded-For : c'est sur eux que
+	# nginx s'appuie pour émettre HSTS et connaître l'IP d'origine.
+	#
+	# L'amont est une variable, et pas par goût du réglage : en production le
+	# conteneur s'appelle aujourd'hui `site-web`, nom fabriqué par Compose à
+	# partir du projet et du service, alors que la pile cible l'épingle sur
+	# `web`. Sans cette variable, frontal et site doivent être déployés d'un
+	# seul geste, faute de quoi on obtient un certificat valide et un 502
+	# général — sur un site en production, c'est le moment le plus risqué de
+	# toute la reprise.
+	#
+	# Avec elle, la bascule peut se faire en deux temps vérifiables :
+	# raccorder le conteneur existant au réseau du frontal
+	# (`docker network connect edge site-web`), démarrer le frontal avec
+	# SITE_AMONT=site-web:8080, vérifier que le site répond, puis seulement
+	# déployer la pile cible et revenir au défaut.
+	#
+	# Le défaut reste `web:8080` : le contrat ne change pas.
+	reverse_proxy {$SITE_AMONT:web:8080}
+}
+
+# ---------------------------------------------------------------------------
+# www — actif. Ne pas le recommenter.
+# ---------------------------------------------------------------------------
+#
+# Ce bloc était commenté, et son absence était une panne. Constatée le
+# 22 septembre 2026, vérifiée depuis l'extérieur, corrigée depuis à la main sur
+# le frontal en service — ce fichier décrit donc l'état voulu, et celui de la
+# machine :
+#
+#   www.preventioncambriolage.fr résout bien vers le VPS (même adresse que le
+#   domaine nu), et http://www y répond par une redirection 308 vers
+#   https://www — mais https://www échoue en « tlsv1 alert internal error »,
+#   c'est-à-dire un frontal sans bloc ni certificat pour cet hôte.
+#
+# Autrement dit, le site redirige aujourd'hui ses visiteurs vers une adresse
+# qui ne répond pas. Quelqu'un qui tape « www. » par habitude, ou qui suit un
+# lien ancien, tombe sur une erreur de certificat — et comme le domaine envoie
+# un HSTS avec includeSubDomains et preload, le navigateur ne propose même pas
+# de passer outre. C'est un mur, pas un avertissement.
+#
+# Ce bloc obtient un certificat pour www et renvoie vers le domaine nu en 301,
+# ce qui rétablit l'accès et évite de dupliquer le contenu aux yeux des
+# moteurs.
+# Les en-têtes sont importés ici aussi : une redirection sans HSTS reste
+# dégradable, et c'est justement l'hôte par lequel on arriverait.
+www.{$SITE_DOMAIN:preventioncambriolage.fr} {
+	import tls_anssi
+	import entetes_securite
+	import journal_acces
+
+	redir https://{$SITE_DOMAIN:preventioncambriolage.fr}{uri} permanent
+}

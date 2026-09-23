@@ -1,0 +1,20 @@
+[Unit]
+Description=Restauration d'essai mensuelle
+Documentation=https://github.com/jimmymrti/vps
+After=docker.service network-online.target
+Requires=docker.service
+OnFailure=alerte@%n.service
+
+[Service]
+Type=oneshot
+# Une base et son seuil de lignes attendu. Le seuil evite qu'une sauvegarde
+# restaurant une base vide soit declaree bonne.
+ExecStart=/opt/vps/services/_commun/restauration-test.sh n8n 1
+ExecStart=/opt/vps/services/_commun/restauration-test.sh annuaire 1000
+TimeoutStartSec=3600
+EnvironmentFile=/opt/vps/secrets/sauvegarde/restic.env
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true
