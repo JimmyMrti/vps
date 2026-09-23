@@ -81,7 +81,7 @@ même, dans `00-extraits.caddy`.
 Ces fichiers lisent leur configuration dans l'environnement du conteneur
 Caddy — c'est la pile du frontal, côté socle, qui doit les fournir.
 
-| Variable | Rôle | Si vide |
+| Variable | Rôle | Si la variable est **absente** |
 |---|---|---|
 | `SITE_DOMAIN` | preventioncambriolage.fr | `preventioncambriolage.fr` |
 | `SITE_AMONT` | le conteneur qui sert le site, pour une bascule en deux temps | `web:8080`, le nom de la pile cible |
@@ -99,7 +99,20 @@ quelque chose se place devant, seul `client_ip` reste juste.
 Les valeurs par défaut sont choisies pour **échouer du bon côté** : un domaine
 non renseigné donne un nom en `.localhost`, pour lequel Caddy fabrique un
 certificat interne sans rien demander à Let's Encrypt, et une liste d'adresses
-vide n'ouvre rien à personne.
+non renseignée n'ouvre rien à personne.
+
+> **Absente et vide ne sont pas la même chose, et l'écart est brutal.** Caddy
+> lit ces variables avec `os.LookupEnv` : le défaut de `{$VAR:défaut}` ne
+> s'applique que si la variable **n'existe pas** dans l'environnement. Si elle
+> existe et vaut la chaîne vide, c'est la chaîne vide qui est substituée. Un
+> `ANNUAIRE_DOMAIN=` écrit vide ne donne donc pas un site inactif : il donne un
+> bloc de site sans adresse, Caddy refuse la configuration entière, **le
+> frontal ne démarre pas et le site en production tombe avec lui.**
+>
+> D'où la règle, des deux côtés : côté frontal, la pile du socle écrit toujours
+> la ligne avec une valeur, jamais une ligne vide ; côté `.env`, une variable
+> qu'on ne veut pas renseigner reste **commentée**, pas assignée à vide. Les
+> `.env.example` de `services/` suivent cette règle.
 
 ## Essais de certificat
 

@@ -132,10 +132,15 @@ publics, par construction.
 ### Et aujourd'hui
 
 **Rien de tout cela n'est en service.** Tant qu'aucun workflow n'a besoin d'un
-appel entrant, `N8N_DOMAIN` reste vide, le frontal ne sert aucun domaine pour
-n8n, et il n'existe donc aucune surface publique du tout — pas même les
-webhooks. Le fichier est écrit et prêt ; il suffira de renseigner deux
-variables le jour venu.
+appel entrant, `N8N_DOMAIN` n'est pas renseignée, le frontal retombe sur
+`n8n.localhost`, il ne sert donc aucun domaine public pour n8n, et il
+n'existe aucune surface publique du tout — pas même les webhooks. Le fichier
+est écrit et prêt ; il suffira de renseigner deux variables le jour venu.
+
+> « Pas renseignée » veut dire **absente de l'environnement, pas assignée à
+> vide.** Caddy n'applique le défaut que si la variable n'existe pas ; écrite
+> vide, elle produit un bloc de site sans adresse et fait refuser toute la
+> configuration du frontal. Voir `edge/sites/README.md`.
 
 ---
 
