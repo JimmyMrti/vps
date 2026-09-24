@@ -98,7 +98,7 @@ copier_arbo() {
     -type f \( -iname '*.yml' -o -iname '*.yaml' -o -iname '*.caddy' -o -iname 'Caddyfile*' \
        -o -iname '*.conf' -o -iname '*.env' -o -iname '.env*' -o -iname '*.service' -o -iname '*.timer' \
        -o -iname '*.sh' -o -iname 'Dockerfile*' -o -iname '*.json' -o -iname '*.toml' -o -iname '*.ini' \
-       -o -iname '*.md' -o -iname '*.cfg' -o -iname '*.txt' -o -iname 'Makefile' \) -print0 2>/dev/null |
+       -o -iname '*.md' -o -iname '*.cfg' -o -iname '*.txt' -o -iname 'Makefile' -o -iname '*.sources' -o -iname '*.list' \) -print0 2>/dev/null |
     while IFS= read -r -d '' f; do copier "$f"; done
 }
 
@@ -156,7 +156,8 @@ run $S "Clés SSH autorisées (empreintes uniquement)" bash -c '
       grep -Eo "^(from|command|restrict|no-[a-z-]+)[^ ]*" "$k" | sort -u | sed "s/^/  option : /"
     done
   done'
-run $S "Droits des dossiers personnels" bash -c 'ls -ld /root /home/* 2>/dev/null'
+run $S "Droits des dossiers personnels" bash -c 'ls -ld /root /home/*'
+run $S "Variables exportées par les fichiers de shell des comptes" bash -c 'grep -HnE "^[[:space:]]*export[[:space:]]" /root/.bashrc /root/.profile /home/*/.bashrc /home/*/.profile /home/*/.bash_profile /etc/environment /etc/profile.d/*.sh 2>/dev/null'
 copier /etc/sudoers
 copier_arbo /etc/sudoers.d 1
 copier /etc/login.defs
@@ -232,7 +233,13 @@ while IFS= read -r -d '' u; do
   nomu=$(basename "$u")
   case "$nomu" in *.service|*.timer|*.path|*.socket|*.mount)
     run $S "Unité $nomu (telle que systemd la lit, surcharges comprises)" systemctl cat "$nomu"
-    run $S "État de $nomu" systemctl status --no-pager -n 15 "$nomu" ;;
+    if [[ "$nomu" == *@.* ]]; then
+      for inst in $(systemctl list-units --all --plain --no-legend "${nomu%%@*}@*.${nomu##*.}" 2>/dev/null | awk '{print $1}'); do
+        run $S "État de $inst" systemctl status --no-pager -n 15 "$inst"
+      done
+    else
+      run $S "État de $nomu" systemctl status --no-pager -n 15 "$nomu"
+    fi ;;
   esac
   # Scripts lancés et fichiers d'environnement référencés par l'unité.
   grep -E '^(ExecStart|ExecStartPre|ExecStartPost|ExecStop|ExecReload)=' "$u" 2>/dev/null |
@@ -306,14 +313,18 @@ if a docker && docker info >/dev/null 2>&1; then
         run $S "$n : configuration résolue (caddy adapt)" docker exec "$n" caddy adapt --config /etc/caddy/Caddyfile --pretty
         run $S "$n : certificats détenus (noms et dates, sans les clés)" docker exec "$n" sh -c 'find /data/caddy/certificates -type f -name "*.crt" -exec ls -l {} \; 2>/dev/null'
         run $S "$n : variables d'environnement" docker exec "$n" env ;;
-      *nginx*)
-        run $S "$n : configuration résolue (nginx -T)" docker exec "$n" nginx -T ;;
+      *nginx*) ;;  # traité ci-dessous, quel que soit le nom de l'image
       *postgres*|*postgis*)
         run $S "$n : version de PostgreSQL" docker exec "$n" postgres --version
         run $S "$n : bases et tailles" docker exec "$n" sh -c 'psql -U "${POSTGRES_USER:-postgres}" -Atc "select datname, pg_size_pretty(pg_database_size(datname)) from pg_database" 2>&1' ;;
       *n8n*)
         run $S "$n : version de n8n" docker exec "$n" n8n --version ;;
     esac
+  done
+
+  docker ps --format '{{.Names}}' | while read -r n; do
+    docker exec "$n" sh -c 'command -v nginx' >/dev/null 2>&1 &&
+      run $S "$n : configuration résolue (nginx -T)" docker exec "$n" nginx -T
   done
 
   if [[ "${RELEVE_LOGS:-1}" != 0 ]]; then
@@ -349,7 +360,7 @@ fi
 # --- Masquage des secrets ----------------------------------------------------
 etape "Masquage des secrets"
 # Forme « nom: valeur » ou « nom=valeur ».
-CLES='(pass(word|wd|phrase)?|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|[a-z0-9]+_key|encryption[_-]?key|credentials?|auth|bearer|salt|cookie|dsn|database_url|db_url|connection_string|client_secret|webhook_url)'
+CLES='(pass(word|wd|phrase)?|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|[a-z0-9]+_key|encryption[_-]?key|credentials?|auth|bearer|salt|dsn|database_url|db_url|connection_string|client_secret|webhook_url)'
 # Forme « nom valeur » en début de ligne (nginx, Caddy, fichiers de conf) : liste plus étroite,
 # et les chemins de fichier ne sont pas masqués.
 CLES2='(pass(word|wd|phrase)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|encryption[_-]?key|client_secret|bearer)'
@@ -361,7 +372,7 @@ ${MASQUE} (clé privée)" \
     -e "s/(${CLES}[A-Za-z0-9_.-]*\"?[[:space:]]*[=:][[:space:]]*\"?)[^\"'[:space:],{}[]+/\1${MASQUE}/Ig" \
     -e "s/^([[:space:]]*${CLES2}[A-Za-z0-9_.-]*[[:space:]]+)(\"[^\"]+\"|[^/[:space:]\"{}][^[:space:]\"{}]{7,})([[:space:]]*;?[[:space:]]*)$/\1${MASQUE}\3/I" \
     -e "s#(://[^/:@[:space:]\"']+:)[^@/[:space:]\"']+@#\1${MASQUE}@#g" \
-    -e "s/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})/${MASQUE}/g" \
+    -e "s/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|sk-(ant-|proj-)?[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})/${MASQUE}/g" \
     -e "s/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/${MASQUE}/g" \
     -e "s/(\\\$(1|2[aby]|5|6|y|argon2id?)\\\$)[^:[:space:]\"]+/\1${MASQUE}/g" \
     "$1"
