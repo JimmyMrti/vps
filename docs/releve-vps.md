@@ -11,7 +11,7 @@ Depuis son poste, dans le dossier où se trouve le script :
 ```sh
 scp scripts/releve-vps.sh <vps>:/tmp/
 ssh -t <vps> 'sudo bash /tmp/releve-vps.sh'
-scp '<vps>:/tmp/releve-vps-*.tar.gz' .
+scp '<vps>:/tmp/releve-vps-*.tar.gz' .   # depuis son poste ; le point final est la destination
 ssh <vps> 'rm /tmp/releve-vps.sh /tmp/releve-vps-*.tar.gz'
 ```
 

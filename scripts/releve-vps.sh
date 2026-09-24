@@ -434,5 +434,7 @@ chmod 600 "$ARCHIVE"
 
 etape "Terminé"
 echo "Archive : $ARCHIVE ($(du -h "$ARCHIVE" | cut -f1))" >&2
-echo "À récupérer depuis ton poste : scp '<vps>:$ARCHIVE' ." >&2
+CIBLE="${SUDO_USER:-root}@$(hostname -f 2>/dev/null || hostname)"
+echo "À récupérer depuis un terminal de ton poste (pas dans cette session SSH), point final compris :" >&2
+echo "  scp $CIBLE:$ARCHIVE ." >&2
 echo "Puis supprimer la copie sur le VPS : rm $ARCHIVE" >&2
