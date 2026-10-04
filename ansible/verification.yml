@@ -1,0 +1,79 @@
+---
+# Contrôle d'état : ne modifie rien, constate.
+#
+#   ansible-playbook verification.yml
+#
+# À jouer après chaque déploiement, et de temps en temps sans raison — c'est
+# souvent comme ça qu'on découvre qu'une dérive s'est installée.
+
+- name: Vérifier l'état du serveur
+  hosts: vps
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Relever l'état des services attendus
+      ansible.builtin.service_facts:
+
+    - name: Chaque service critique doit tourner
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services[item + '.service'] is defined
+          - ansible_facts.services[item + '.service'].state == 'running'
+        fail_msg: "{{ item }} n'est pas en marche."
+        success_msg: "{{ item }} tourne."
+        quiet: true
+      loop:
+        - ssh
+        - docker
+        - fail2ban
+        - nftables
+
+    - name: Relever les ports réellement en écoute
+      ansible.builtin.command: ss -lntup
+      changed_when: false
+      register: socle_ports
+
+    - name: Afficher les ports en écoute
+      ansible.builtin.debug:
+        msg: "{{ socle_ports.stdout_lines }}"
+
+    - name: Relever les règles de pare-feu effectivement chargées
+      ansible.builtin.command: nft list ruleset
+      changed_when: false
+      register: socle_nft
+
+    - name: Vérifier que la politique d'entrée est bien en rejet
+      ansible.builtin.assert:
+        that: "'policy drop' in socle_nft.stdout"
+        fail_msg: >-
+          La chaîne d'entrée n'est pas en politique « drop ». Le serveur
+          accepte donc tout ce qui n'est pas explicitement refusé.
+        quiet: true
+
+    - name: Relever l'état des conteneurs
+      ansible.builtin.command: docker ps --format '{{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}'
+      changed_when: false
+      register: socle_conteneurs
+
+    - name: Afficher l'état des conteneurs
+      ansible.builtin.debug:
+        msg: "{{ socle_conteneurs.stdout_lines }}"
+
+    # La sauvegarde et sa vérification sont portées par services/_commun/ :
+    # leurs propres unités signalent leurs échecs, et `systemctl --failed`
+    # les fait remonter.
+    # Le module systemd pilote une unité ; il ne sait pas interroger la liste
+    # de celles qui ont échoué. C'est le seul usage de systemctl ici, et il
+    # ne change rien sur la machine.
+    - name: Relever les unités en échec  # noqa: command-instead-of-module
+      ansible.builtin.command: systemctl --failed --no-legend
+      changed_when: false
+      register: socle_unites_echec
+
+    - name: Aucune unité ne doit être en échec
+      ansible.builtin.assert:
+        that: socle_unites_echec.stdout | trim | length == 0
+        fail_msg: "Unités en échec : {{ socle_unites_echec.stdout_lines }}"
+        success_msg: "Aucune unité en échec."
+        quiet: true

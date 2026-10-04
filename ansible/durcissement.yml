@@ -1,0 +1,22 @@
+---
+# Le socle seul, sans toucher aux services.
+#
+# Utile pour rejouer le durcissement sur un serveur dont les piles applicatives
+# tournent déjà, ou pour préparer une machine avant d'y déployer quoi que ce
+# soit.
+#
+#   ansible-playbook durcissement.yml --check --diff
+
+- name: Durcissement du système
+  hosts: vps
+  become: true
+  tags: [durcissement]
+
+  roles:
+    - socle
+    - comptes
+    - ssh
+    - pare_feu
+    - fail2ban
+    - mises_a_jour
+    - journalisation

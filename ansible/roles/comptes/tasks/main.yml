@@ -1,0 +1,114 @@
+---
+# ===========================================================================
+# Comptes et élévation de privilèges.
+#
+# Cadre : ANSSI-BP-028, sections « comptes utilisateur » et « administration ».
+# ===========================================================================
+
+- name: Créer le compte d'administration
+  ansible.builtin.user:
+    name: "{{ admin_utilisateur }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+    create_home: true
+    password_lock: true   # Connexion par clé uniquement, jamais par mot de passe.
+    state: present
+
+- name: Installer les clés publiques autorisées
+  ansible.posix.authorized_key:
+    user: "{{ admin_utilisateur }}"
+    key: "{{ admin_cles_ssh | join('\n') }}"
+    exclusive: true       # Une clé retirée du dépôt est retirée du serveur.
+    state: present
+
+- name: Durcir les droits du dossier .ssh
+  ansible.builtin.file:
+    path: "/home/{{ admin_utilisateur }}/.ssh"
+    state: directory
+    owner: "{{ admin_utilisateur }}"
+    group: "{{ admin_utilisateur }}"
+    mode: "0700"
+
+# --- sudo -------------------------------------------------------------------
+#
+# Le compte administrateur garde NOPASSWD. Ce n'est pas un relâchement : son
+# mot de passe est verrouillé, il n'y a donc aucun mot de passe à demander.
+# La barrière est la clé SSH à phrase de passe, pas un secret local que le
+# serveur pourrait se faire voler.
+
+- name: Configurer sudo
+  ansible.builtin.template:
+    src: sudoers-admin.j2
+    dest: "/etc/sudoers.d/10-{{ admin_utilisateur }}"
+    owner: root
+    group: root
+    mode: "0440"
+    # visudo refuse d'écrire un fichier invalide : une erreur ici rendrait
+    # toute élévation impossible, sur une machine sans connexion root.
+    validate: "visudo -cf %s"
+
+- name: Journaliser les commandes passées par sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/05-journalisation
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # {{ ansible_managed }}
+      # Trace de ce qui est fait en tant que root, et de la part de qui.
+      Defaults log_input, log_output
+      Defaults iolog_dir=/var/log/sudo-io
+      Defaults logfile=/var/log/sudo.log
+      Defaults passwd_timeout=1
+      Defaults timestamp_timeout=5
+      Defaults !visiblepw
+      Defaults use_pty
+
+- name: Verrouiller les comptes de service qui ne servent pas à se connecter
+  ansible.builtin.user:
+    name: "{{ item }}"
+    shell: /usr/sbin/nologin
+  loop:
+    - daemon
+    - bin
+    - sys
+    - games
+    - man
+    - lp
+    - mail
+    - news
+    - uucp
+    - proxy
+    - backup
+    - list
+    - irc
+  failed_when: false
+
+- name: Fermer /etc/securetty pour interdire toute connexion root en console
+  ansible.builtin.copy:
+    dest: /etc/securetty
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      # {{ ansible_managed }}
+      # Vide volontairement : aucune console n'autorise root.
+      # L'accès de secours passe par la console KVM de l'espace client OVH,
+      # qui donne un shell root hors de ce mécanisme.
+
+- name: Poser une bannière d'avertissement
+  ansible.builtin.copy:
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      ***************************************************************
+      Acces reserve aux personnes autorisees.
+      Toute connexion est journalisee et conservee.
+      ***************************************************************
+  loop:
+    - /etc/issue
+    - /etc/issue.net

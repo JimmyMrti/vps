@@ -1,0 +1,92 @@
+---
+# Playbook complet : durcissement du système, puis déploiement des services.
+#
+#   ansible-playbook site.yml
+#
+# Pour ne rejouer qu'une partie, utilisez les étiquettes :
+#   ansible-playbook site.yml --tags ssh
+#   ansible-playbook site.yml --tags proxy,n8n
+#
+# Toujours vérifier avant d'appliquer :
+#   ansible-playbook site.yml --check --diff
+
+- name: Socle et services du VPS
+  hosts: vps
+  become: true
+
+  pre_tasks:
+    - name: Refuser de jouer sur un hôte non renseigné
+      ansible.builtin.assert:
+        that:
+          - ansible_host is defined
+          - ansible_host != "CHANGEZ_MOI"
+        fail_msg: >-
+          ansible_host n'est pas renseigné dans inventaire/production.yml.
+          Lisez l'IP avec : terraform output inventaire_ansible
+        quiet: true
+      tags: [always]
+
+    - name: Refuser de jouer avec une clé SSH d'exemple
+      ansible.builtin.assert:
+        that:
+          - admin_cles_ssh | length > 0
+          - admin_cles_ssh | select('search', 'REMPLACEZ') | list | length == 0
+        fail_msg: >-
+          admin_cles_ssh contient encore la clé d'exemple. Le rôle ssh
+          désactive l'authentification par mot de passe : appliquer en l'état
+          fermerait définitivement l'accès au serveur.
+        quiet: true
+      tags: [always]
+
+    - name: Vérifier que le système est bien celui attendu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_major_version'] | int >= 22
+        fail_msg: >-
+          Ces rôles sont écrits et éprouvés pour Ubuntu 22.04 ou plus récent.
+          Système détecté : {{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_version'] }}
+        quiet: true
+      tags: [always]
+
+  roles:
+    # --- Socle système ------------------------------------------------------
+    - role: socle
+      tags: [socle, durcissement]
+
+    - role: comptes
+      tags: [comptes, durcissement]
+
+    - role: ssh
+      tags: [ssh, durcissement]
+
+    - role: pare_feu
+      tags: [pare_feu, durcissement]
+
+    - role: fail2ban
+      tags: [fail2ban, durcissement]
+
+    - role: mises_a_jour
+      tags: [mises_a_jour, durcissement]
+
+    - role: journalisation
+      tags: [journalisation, durcissement]
+
+    # --- Conteneurisation ---------------------------------------------------
+    - role: docker
+      tags: [docker]
+
+    - role: proxy
+      tags: [proxy]
+
+    # --- Services -----------------------------------------------------------
+    # Le site statique est le seul service porté par le socle : il existait
+    # avant lui. n8n et l'annuaire, ainsi que les sauvegardes et la
+    # surveillance du disque, sont décrits dans services/ et docs/services/.
+    - role: site_statique
+      tags: [site, services]
+
+    # --- Exploitation -------------------------------------------------------
+    - role: supervision
+      tags: [supervision]

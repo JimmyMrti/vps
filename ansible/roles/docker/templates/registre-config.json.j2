@@ -1,0 +1,7 @@
+{
+  "auths": {
+    "ghcr.io": {
+      "auth": "{{ (coffre_ghcr_utilisateur ~ ':' ~ coffre_ghcr_jeton) | b64encode }}"
+    }
+  }
+}

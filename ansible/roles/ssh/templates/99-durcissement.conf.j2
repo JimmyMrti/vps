@@ -1,0 +1,103 @@
+# {{ ansible_managed }}
+#
+# Cadre : ANSSI, « Recommandations pour un usage sécurisé d'(Open)SSH ».
+#
+# Ce fichier est chargé par le Include de /etc/ssh/sshd_config et prime sur
+# les valeurs de la distribution. Il est volontairement dans un fichier à
+# part : les mises à jour d'OpenSSH réécrivent sshd_config, jamais ceci.
+
+Port {{ ssh_port }}
+
+# --- Authentification -------------------------------------------------------
+# Par clé, et seulement par clé. C'est ce qui rend inutiles les milliers de
+# tentatives quotidiennes contre des mots de passe.
+PubkeyAuthentication yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+UsePAM yes
+
+# Jamais de connexion directe en root : une action administrative doit être
+# attribuable à une personne, ce qu'une connexion root partagée interdit.
+PermitRootLogin no
+
+# Seul le compte d'administration peut se connecter.
+#
+# Quand une liste d'adresses est fournie, elle est portée par AllowUsers
+# lui-même (forme « compte@adresse ») et non par un bloc Match : un Match
+# ouvre un contexte qui capterait toutes les directives écrites en dessous,
+# ce qui ferait silencieusement tomber la moitié de ce fichier.
+{% if ssh_adresses_autorisees | length > 0 %}
+AllowUsers {% for adresse in ssh_adresses_autorisees %}{{ admin_utilisateur }}@{{ adresse }} {% endfor %}
+
+{% else %}
+AllowUsers {{ admin_utilisateur }}
+{% endif %}
+
+# --- Limiter ce qu'un attaquant peut tenter ---------------------------------
+MaxAuthTries 3
+MaxSessions 4
+MaxStartups 10:30:60
+LoginGraceTime 20
+
+# Couper une session inactive : un terminal oublié est un accès ouvert.
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# --- Redirection de ports ---------------------------------------------------
+#
+# n8n n'est PAS exposé : son port n'écoute que sur la boucle locale du
+# serveur, et le tunnel SSH est le seul chemin d'administration.
+#
+#   ssh -N -L 5678:127.0.0.1:5678 {{ admin_utilisateur }}@le-serveur
+#   puis http://127.0.0.1:5678/ dans le navigateur
+#
+# Interdire toute redirection fermerait donc ce chemin. On n'autorise que ce
+# qu'il demande :
+#
+#   `local`      autorise -L (le client atteint un service du serveur) et
+#                refuse -R, qui est la direction dangereuse : elle ferait du
+#                serveur un point d'entrée vers le poste d'administration.
+#   PermitOpen   limite les destinations joignables par un -L. Sans cette
+#                ligne, un tunnel peut viser n'importe quelle adresse
+#                atteignable depuis le serveur, y compris les réseaux Docker
+#                et leurs bases de données.
+AllowTcpForwarding local
+PermitOpen {% for destination in ssh_destinations_tunnel %}{{ destination }} {% endfor %}
+
+# GatewayPorts no : un port redirigé ne se lie qu'à la boucle locale du
+# client, jamais à ses interfaces publiques.
+GatewayPorts no
+
+# --- Fonctions désactivées --------------------------------------------------
+# Chacune est un canal de rebond, et aucune ne sert ici.
+X11Forwarding no
+AllowAgentForwarding no
+PermitTunnel no
+PermitUserEnvironment no
+AllowStreamLocalForwarding no
+
+# --- Algorithmes ------------------------------------------------------------
+# Rien qui repose sur SHA-1, rien sans authentification intégrée.
+KexAlgorithms {{ ssh_echange_cles | join(',') }}
+Ciphers {{ ssh_chiffrements | join(',') }}
+MACs {{ ssh_macs | join(',') }}
+HostKeyAlgorithms {{ ssh_algorithmes_cles_hote | join(',') }}
+
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# --- Journalisation ---------------------------------------------------------
+# VERBOSE trace l'empreinte de la clé utilisée : sans elle, on sait qu'une
+# connexion a eu lieu, pas avec quelle clé.
+LogLevel VERBOSE
+SyslogFacility AUTH
+PrintLastLog yes
+
+# --- Divers -----------------------------------------------------------------
+Banner /etc/issue.net
+StrictModes yes
+IgnoreRhosts yes
+HostbasedAuthentication no
+Compression no

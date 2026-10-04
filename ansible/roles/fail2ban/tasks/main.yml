@@ -1,0 +1,41 @@
+---
+# ===========================================================================
+# fail2ban.
+#
+# Le durcissement SSH rend les tentatives par mot de passe inopérantes ;
+# fail2ban les rend coûteuses. Les deux sont complémentaires : l'un ferme la
+# porte, l'autre arrête de répondre à celui qui frappe.
+#
+# Ce rôle ne pose QUE la jail sshd, qui relève du socle. Les jails visant le
+# frontal HTTP (abus, authentification) sont fournies par le fil des services,
+# dans services/_commun/fail2ban/.
+#
+# Point important, et il n'est pas évident : un bannissement posé dans la
+# chaîne d'entrée de l'hôte n'arrête PAS le trafic vers un conteneur, qui
+# transite par les chaînes de Docker. Bannir une adresse qui attaque le site
+# demande donc une action visant DOCKER-USER — c'est ce que fait l'action
+# fournie par la PR des services. Pour SSH, qui est un service de l'hôte, la
+# chaîne d'entrée est la bonne cible.
+# ===========================================================================
+
+- name: Installer fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Configurer fail2ban
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Relancer fail2ban
+
+- name: Activer fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: started

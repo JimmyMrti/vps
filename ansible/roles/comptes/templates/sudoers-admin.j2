@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+#
+# Le mot de passe de ce compte est verrouillé (connexion par clé uniquement) :
+# exiger un mot de passe pour sudo demanderait un secret qui n'existe pas.
+# La vraie barrière est la phrase de passe de la clé SSH.
+
+{{ admin_utilisateur }} ALL=(ALL) NOPASSWD:ALL

@@ -1,0 +1,104 @@
+---
+# ===========================================================================
+# Journalisation et audit.
+#
+# Cadre : ANSSI, « Recommandations de sécurité pour la mise en œuvre d'un
+# système de journalisation », et le volet journalisation d'ANSSI-BP-028.
+#
+# Le point qui décide de tout : par défaut, journald garde les journaux en
+# mémoire. Un redémarrage — y compris celui qu'un correctif de sécurité
+# déclenche à 4 h 30 — efface tout. Le jour où l'on cherche ce qui s'est
+# passé, il n'y a rien à lire.
+# ===========================================================================
+
+- name: Rendre les journaux persistants
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+
+- name: Configurer journald
+  ansible.builtin.template:
+    src: journald.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-durcissement.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Relancer journald
+
+# --- auditd -----------------------------------------------------------------
+
+- name: Installer auditd
+  ansible.builtin.apt:
+    name:
+      - auditd
+      - audispd-plugins
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Déposer les règles d'audit
+  ansible.builtin.template:
+    src: audit-durcissement.rules.j2
+    dest: /etc/audit/rules.d/99-durcissement.rules
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Recharger les règles auditd
+
+- name: Configurer la rétention d'auditd
+  ansible.builtin.lineinfile:
+    path: /etc/audit/auditd.conf
+    regexp: "^{{ item.clef }}\\s*="
+    line: "{{ item.clef }} = {{ item.valeur }}"
+    owner: root
+    group: root
+    mode: "0640"
+  loop:
+    - { clef: "max_log_file", valeur: "50" }
+    - { clef: "num_logs", valeur: "10" }
+    # `rotate` et non `halt` : arrêter la machine parce que le disque de
+    # journaux est plein transforme une gêne en panne totale. Sur un serveur
+    # d'hébergement, ce n'est pas le bon arbitrage.
+    - { clef: "max_log_file_action", valeur: "rotate" }
+    - { clef: "space_left_action", valeur: "syslog" }
+    - { clef: "admin_space_left_action", valeur: "syslog" }
+    - { clef: "disk_full_action", valeur: "rotate" }
+  notify: Recharger les règles auditd
+
+- name: Activer auditd
+  ansible.builtin.systemd_service:
+    name: auditd
+    enabled: true
+    state: started
+
+# --- Rotation des journaux applicatifs --------------------------------------
+
+- name: Créer le dossier des journaux du proxy
+  ansible.builtin.file:
+    path: /var/log/caddy
+    state: directory
+    owner: root
+    group: adm
+    mode: "0750"
+
+- name: Configurer la rotation des journaux du proxy
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/caddy
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      /var/log/caddy/*.log {
+          daily
+          rotate 30
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 0640 root adm
+          sharedscripts
+      }

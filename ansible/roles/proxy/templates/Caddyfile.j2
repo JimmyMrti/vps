@@ -1,0 +1,90 @@
+# {{ ansible_managed }}
+#
+# Caddyfile du socle. Il ne décrit aucun domaine : il fournit les options
+# globales, puis importe un fichier par domaine depuis /etc/caddy/sites.
+#
+# Les fichiers de site sont dans edge/sites/ du dépôt. Le contrat (variables
+# attendues, ordre de lecture, valeurs par défaut) est dans
+# edge/sites/README.md.
+
+{
+	email {{ courriel_administrateur }}
+{% if proxy_acme_essai | bool %}
+
+	# ===== SERVEUR DE TEST LET'S ENCRYPT =====
+	#
+	# Les certificats émis ici ne sont PAS reconnus par les navigateurs. C'est
+	# voulu : cela permet d'éprouver un domaine sans consommer le quota de
+	# production, qui est de cinq certificats identiques par semaine et ne se
+	# rattrape qu'en attendant sept jours.
+	#
+	# ATTENTION : preventioncambriolage.fr envoie un HSTS avec
+	# includeSubDomains et preload. Un navigateur ayant déjà visité le site
+	# REFUSERA un certificat de test sur ce domaine ou l'un de ses
+	# sous-domaines, sans possibilité de passer outre — HSTS supprime
+	# l'avertissement contournable. Les essais en mode test se vérifient donc
+	# avec curl ou openssl s_client, jamais dans un navigateur.
+	acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+{% endif %}
+
+	servers {
+		# Le frontal est en bout de chaîne : les en-têtes X-Forwarded-* ne
+		# doivent être crus que s'ils viennent d'un réseau privé.
+		trusted_proxies static private_ranges
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Réglages TLS communs
+# ---------------------------------------------------------------------------
+#
+# Cadre : ANSSI-BP-035.
+#
+# TLS 1.2 en plancher, 1.3 privilégié. Les suites retenues assurent toutes la
+# confidentialité persistante (ECDHE) et un chiffrement authentifié (AEAD) :
+# ni RSA statique, ni CBC, ni SHA-1.
+#
+# Caddy ne permet pas de choisir les suites TLS 1.3, fixées par la norme et
+# toutes acceptables : la liste ci-dessous ne concerne donc que TLS 1.2.
+(tls_anssi) {
+	tls {
+		protocols tls1.2 tls1.3
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+		curves x25519 secp384r1 secp256r1
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Les domaines
+# ---------------------------------------------------------------------------
+#
+# Ordre alphabétique : les fichiers définissant des extraits réutilisables
+# portent un préfixe numérique pour être lus avant ceux qui les importent.
+import /etc/caddy/sites/*.caddy
+
+# ---------------------------------------------------------------------------
+# Tout domaine non déclaré ci-dessus
+# ---------------------------------------------------------------------------
+#
+# Sans ce bloc, Caddy tenterait d'obtenir un certificat de Let's Encrypt pour
+# n'importe quel nom pointant vers cette IP — y compris un nom qu'un tiers
+# ferait pointer dessus à notre insu — et se ferait bloquer par le quota.
+# `tls internal` fabrique un certificat local à la place : rien n'est demandé
+# à l'extérieur.
+#
+# NE PAS LE RETIRER en croyant qu'il gêne le renouvellement des certificats.
+# Il ne le gêne pas, et c'est documenté : Caddy insère ses propres routes —
+# la redirection HTTP vers HTTPS et la réponse au défi ACME — APRÈS les blocs
+# qui portent un nom d'hôte mais AVANT un bloc fourre-tout comme celui-ci.
+# Les défis pour les domaines déclarés plus haut sont donc traités avant
+# d'arriver ici.
+#   https://caddyserver.com/docs/automatic-https
+#
+# Cette vérification a été faite sur la documentation, pas sur un
+# renouvellement réel. Le garde-fou de terrain est ailleurs : le rôle
+# supervision signale tout certificat qui descend sous vingt jours, ce qui
+# rend visible un renouvellement en échec bien avant l'expiration.
+:80, :443 {
+	tls internal
+	respond "Hote inconnu" 421
+}

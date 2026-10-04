@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+#
+# Modules noyau dont ce serveur n'a aucun usage. Chaque ligne retire une
+# classe entière de vulnérabilités potentielles : un pilote de système de
+# fichiers exotique ou un protocole réseau oublié se compte parmi les
+# meilleures portes d'entrée vers le noyau, précisément parce que personne
+# ne les regarde.
+#
+# `install ... /bin/false` est plus sûr que `blacklist` : blacklist n'empêche
+# pas un chargement explicite par modprobe.
+
+{% for module in socle_modules_interdits %}
+install {{ module }} /bin/false
+blacklist {{ module }}
+{% endfor %}

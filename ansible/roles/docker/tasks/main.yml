@@ -1,0 +1,243 @@
+---
+# ===========================================================================
+# Docker.
+#
+# Depuis le dépôt officiel Docker, jamais celui d'Ubuntu qui est en retard de
+# plusieurs versions — donc de plusieurs correctifs.
+#
+# Cadre : ANSSI, « Recommandations de sécurité relatives au déploiement de
+# conteneurs Docker ».
+# ===========================================================================
+
+- name: Installer les prérequis
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - python3-docker     # requis par les modules community.docker
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Créer le dossier des clés de dépôt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Récupérer la clé du dépôt Docker
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+# Docker publie ses paquets par nom de version Ubuntu, et pas toujours le
+# jour de la sortie : sur une version très récente, le dépôt correspondant
+# peut ne pas exister encore. On vérifie avant de déclarer le dépôt, et on se
+# rabat sur la LTS précédente — les paquets sont identiques en pratique.
+- name: Vérifier que Docker publie pour cette version d'Ubuntu
+  ansible.builtin.uri:
+    url: "https://download.docker.com/linux/ubuntu/dists/{{ ansible_facts['distribution_release'] }}/Release"
+    method: HEAD
+    status_code: [200, 403, 404]
+  register: docker_depot_teste
+  changed_when: false
+  failed_when: false
+
+- name: Retenir le nom de version à utiliser pour le dépôt Docker
+  ansible.builtin.set_fact:
+    docker_nom_version: >-
+      {{ ansible_facts['distribution_release']
+         if docker_depot_teste.status | default(404) == 200
+         else docker_version_repli }}
+
+- name: Signaler le repli sur une version antérieure
+  ansible.builtin.debug:
+    msg: >-
+      Docker ne publie pas encore pour « {{ ansible_facts['distribution_release'] }} ».
+      Repli sur « {{ docker_version_repli }} ». À revoir quand le dépôt existe.
+  when: docker_nom_version != ansible_facts['distribution_release']
+
+- name: Déclarer le dépôt Docker
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ ansible_facts['architecture'] | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}
+      signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu
+      {{ docker_nom_version }} stable
+    filename: docker
+    state: present
+
+- name: Installer Docker
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+# daemon.json ne peut pas porter de commentaires : dockerd refuse de
+# démarrer sur une clé inconnue, y compris une clé de commentaire. Le détail
+# de chaque réglage est donc ici.
+#
+#   log-driver / log-opts  rotation des journaux de conteneurs. Sans elle, un
+#                          conteneur bavard remplit le disque.
+#   live-restore           les conteneurs survivent au redémarrage du démon :
+#                          une mise à jour de Docker ne coupe pas le site.
+#   no-new-privileges      aucun processus de conteneur ne peut gagner de
+#                          privilèges par un binaire setuid.
+#   userland-proxy         LAISSÉ ACTIF, à l'inverse du réflexe habituel.
+#                          Le désactiver économise un processus par port
+#                          publié, mais casse les publications sur la boucle
+#                          locale : sans le relais, joindre 127.0.0.1:port
+#                          depuis l'hôte dépend de net.ipv4.conf.*.route_localnet,
+#                          que Docker ne pose pas. Or n8n n'est publié QUE sur
+#                          la boucle locale et le tunnel SSH est son seul
+#                          chemin d'administration : le casser rendrait le
+#                          service inadministrable. L'IP source réelle reste
+#                          préservée pour le trafic venant de l'extérieur,
+#                          qui passe par les règles de traduction d'adresse,
+#                          donc fail2ban et les journaux du frontal ne sont
+#                          pas affectés.
+#   icc                    coupe la communication libre sur le bridge par
+#                          défaut. Nos piles utilisent des réseaux nommés, où
+#                          ce réglage ne s'applique pas — l'isolement y vient
+#                          du découpage en réseaux, pas de cette ligne. Elle
+#                          reste pour le cas où un conteneur atterrirait sur
+#                          le bridge par défaut par oubli.
+#   default-address-pools  fixe les plages attribuées aux réseaux Docker, pour
+#                          que les règles de pare-feu et `set_real_ip_from`
+#                          côté nginx restent valables.
+- name: Configurer le démon Docker
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "python3 -c \"import json,sys; json.load(open(sys.argv[1]))\" %s"
+  notify: Relancer docker
+
+- name: Activer Docker
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+# --- Le groupe docker -------------------------------------------------------
+#
+# Appartenir au groupe `docker` équivaut à être root : la socket permet de
+# monter n'importe quel chemin de l'hôte dans un conteneur privilégié. Ce
+# n'est pas un défaut de configuration, c'est inhérent au mode rootful.
+#
+# Conséquence pratique : le compte d'administration doit être protégé comme un
+# compte root, c'est-à-dire par une clé SSH à phrase de passe. Le mode
+# rootless supprimerait ce point mais complique les ports privilégiés ; l'écart
+# est assumé et justifié dans docs/conformite-anssi.md.
+
+- name: Ajouter le compte d'administration au groupe docker
+  ansible.builtin.user:
+    name: "{{ admin_utilisateur }}"
+    groups: docker
+    append: true
+
+- name: Vérifier qui appartient au groupe docker
+  ansible.builtin.getent:
+    database: group
+    key: docker
+
+- name: Rappeler la portée du groupe docker
+  ansible.builtin.debug:
+    msg: >-
+      Membres du groupe docker (équivalents root) :
+      {{ ansible_facts.getent_group['docker'][2] | default('aucun') }}
+
+# --- Réseau d'exposition ----------------------------------------------------
+#
+# Un seul réseau est partagé avec le proxy. Chaque pile garde en plus son
+# réseau interne, auquel le proxy n'a pas accès : une base de données n'a
+# aucune raison d'être joignable depuis le point d'entrée HTTP.
+
+- name: Créer le réseau d'exposition partagé
+  community.docker.docker_network:
+    name: "{{ docker_reseau_exposition }}"
+    driver: bridge
+    state: present
+
+# --- Identifiants du registre -----------------------------------------------
+#
+# Emplacement dédié, et non le dossier personnel : le service de mise à jour
+# tourne en root et son durcissement systemd masque /home ET /root. Un
+# `docker login` ordinaire écrirait là où root ne peut pas lire, et le
+# téléchargement échouerait sur « unauthorized » sans autre explication.
+
+- name: Créer le dossier des identifiants de registre
+  ansible.builtin.file:
+    path: /etc/docker/identifiants
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Déposer les identifiants ghcr.io
+  ansible.builtin.template:
+    src: registre-config.json.j2
+    dest: /etc/docker/identifiants/config.json
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true   # Le jeton ne doit pas apparaître dans la sortie du playbook.
+
+- name: Nettoyer périodiquement les images remplacées
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker-menage.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      # Sur un petit VPS, les images remplacées remplissent le disque en
+      # quelques semaines. Une semaine de marge permet de revenir en arrière.
+      [Unit]
+      Description=Menage des images Docker remplacees
+      After=docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/docker image prune --force --filter until=168h
+      ExecStart=/usr/bin/docker builder prune --force --filter until=168h
+
+- name: Programmer le ménage hebdomadaire
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker-menage.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      [Unit]
+      Description=Menage hebdomadaire des images Docker
+
+      [Timer]
+      OnCalendar=Sun 05:00
+      RandomizedDelaySec=30m
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Activer le ménage hebdomadaire
+  ansible.builtin.systemd_service:
+    name: docker-menage.timer
+    enabled: true
+    state: started
+    daemon_reload: true

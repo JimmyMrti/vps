@@ -1,0 +1,23 @@
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+
+  "live-restore": true,
+  "no-new-privileges": true,
+  "userland-proxy": true,
+  "icc": false,
+
+  "default-ulimits": {
+    "nofile": { "Name": "nofile", "Hard": 65536, "Soft": 32768 },
+    "nproc":  { "Name": "nproc",  "Hard": 4096,  "Soft": 2048 }
+  },
+
+  "default-address-pools": [
+    { "base": "172.20.0.0/16", "size": 24 }
+  ],
+
+  "features": { "buildkit": true }
+}

@@ -1,0 +1,7 @@
+---
+# `reload` et non `restart` : une session ouverte survit à un rechargement.
+# Si la configuration est mauvaise, on garde la main pour corriger.
+- name: Recharger sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded

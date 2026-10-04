@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Contrôles locaux. Sortie dans le journal systemd :
+#   journalctl -u controle-etat.service -n 50
+#
+# Le code de retour est non nul si quelque chose ne va pas, ce qui rend
+# l'unité « failed » et donc visible dans `systemctl --failed`.
+
+set -uo pipefail
+
+anomalies=0
+
+signaler() {
+  echo "ANOMALIE: $*"
+  anomalies=$((anomalies + 1))
+}
+
+# --- Services système -------------------------------------------------------
+for service in ssh docker nftables fail2ban auditd; do
+  if ! systemctl is-active --quiet "$service"; then
+    signaler "le service $service n'est pas actif"
+  fi
+done
+
+# --- Conteneurs attendus ----------------------------------------------------
+# Les conteneurs du socle. Les piles applicatives ont leurs propres
+# controles, fournis avec elles.
+for conteneur in frontal web; do
+  etat="$(docker inspect --format '{% raw %}{{.State.Status}}{% endraw %}' "$conteneur" 2>/dev/null || echo absent)"
+  if [ "$etat" != "running" ]; then
+    signaler "le conteneur $conteneur est '$etat'"
+  fi
+done
+
+# Le disque est surveille separement par services/_commun/surveillance-disque.sh,
+# qui sait aussi alerter. On ne le controle pas deux fois ici.
+
+# --- Memoire ----------------------------------------------------------------
+dispo="$(free -m | awk '/^Mem:/ {print $7}')"
+if [ "$dispo" -lt 512 ]; then
+  signaler "memoire disponible faible : ${dispo} Mo"
+fi
+
+# --- Certificats ------------------------------------------------------------
+# Caddy renouvelle seul a 30 jours de l'expiration. Si un certificat descend
+# sous 20 jours, c'est que le renouvellement echoue — le plus souvent parce
+# que le port 80 s'est retrouve ferme. C'est une panne a retardement : rien
+# ne se voit jusqu'au jour de l'expiration.
+for domaine in {{ proxy_domaine_site }}{% if proxy_domaine_n8n and '.localhost' not in proxy_domaine_n8n %} {{ proxy_domaine_n8n }}{% endif %}{% if proxy_domaine_annuaire %} {{ proxy_domaine_annuaire }}{% endif %}; do
+  fin="$(echo | openssl s_client -connect "${domaine}:443" -servername "$domaine" 2>/dev/null \
+          | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)"
+  if [ -z "$fin" ]; then
+    signaler "impossible de lire le certificat de $domaine"
+    continue
+  fi
+  restant=$(( ( $(date -d "$fin" +%s) - $(date +%s) ) / 86400 ))
+  if [ "$restant" -lt 20 ]; then
+    signaler "le certificat de $domaine expire dans ${restant} jours"
+  fi
+done
+
+# La sauvegarde et sa verification sont portees par
+# services/_commun/ : leurs unites signalent elles-memes leurs echecs.
+
+# --- Mises a jour en attente de redemarrage ---------------------------------
+if [ -f /var/run/reboot-required ]; then
+  echo "Info: un redemarrage est requis par une mise a jour."
+fi
+
+# --- Bilan ------------------------------------------------------------------
+if [ "$anomalies" -eq 0 ]; then
+  echo "Tout est en ordre."
+  exit 0
+fi
+
+echo "$anomalies anomalie(s) relevee(s)."
+exit 1

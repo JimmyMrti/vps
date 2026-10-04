@@ -1,0 +1,51 @@
+# {{ ansible_managed }}
+#
+# Rien ne se construit ici : l'image est fabriquée par GitHub Actions et
+# simplement récupérée. Le serveur n'a ni Node, ni les sources, ni chaîne de
+# compilation — moins de logiciel installé, moins de surface d'attaque.
+
+services:
+  web:
+    image: {{ site_image }}
+    container_name: web
+    pull_policy: always
+    restart: unless-stopped
+
+    # Le contenu est entièrement statique : le conteneur n'a besoin d'aucun
+    # droit d'écriture sur son système de fichiers.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+
+    security_opt:
+      - no-new-privileges:true
+
+    # Aucune capacité. Nginx démarre déjà sous l'utilisateur `nginx` dans
+    # cette image et n'a donc jamais à abandonner de privilèges : CHOWN,
+    # SETGID et SETUID sont inutiles ici.
+    cap_drop:
+      - ALL
+
+    mem_limit: {{ memoire_limite_site | default('128m') }}
+
+    # Aucun port publié : seul le proxy peut joindre ce conteneur.
+    networks:
+      - {{ docker_reseau_exposition }}
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  {{ docker_reseau_exposition }}:
+    external: true

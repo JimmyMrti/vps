@@ -1,0 +1,111 @@
+---
+# ===========================================================================
+# Pare-feu.
+#
+# Deux étages, et il faut les deux :
+#
+#   1. nftables tient le trafic à destination de l'hôte lui-même.
+#   2. Une chaîne DOCKER-USER tient le trafic à destination des conteneurs.
+#
+# Le second n'est pas un supplément de précaution. Docker écrit ses propres
+# règles directement dans netfilter au moment où un conteneur publie un port,
+# et ces règles sont évaluées AVANT celles de l'hôte. Un `ports: 5678:5678`
+# ajouté sans y penser dans un fichier compose ouvre donc n8n à l'Internet
+# entier, pare-feu « actif » et rassurant à l'écran.
+#
+# C'est le piège numéro un de cette architecture. Voir
+# docs/adr/0002-nftables-et-le-contournement-docker.md.
+# ===========================================================================
+
+- name: Installer nftables
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# ufw et nftables se disputent le même sous-système : les faire cohabiter
+# produit un jeu de règles que personne ne sait plus lire.
+- name: Retirer ufw au profit de nftables
+  ansible.builtin.apt:
+    name: ufw
+    state: absent
+    purge: true
+
+- name: Déterminer l'interface publique
+  ansible.builtin.shell:
+    cmd: "set -o pipefail; ip -o route get 1.1.1.1 | sed -n 's/.*dev \\([^ ]*\\).*/\\1/p'"
+    executable: /bin/bash
+  changed_when: false
+  register: pare_feu_interface_detectee
+
+- name: Retenir l'interface publique
+  ansible.builtin.set_fact:
+    pare_feu_interface: >-
+      {{ pare_feu_interface_detectee.stdout | trim
+         if pare_feu_interface_detectee.stdout | trim | length > 0
+         else pare_feu_interface_publique }}
+
+- name: Déposer le jeu de règles nftables
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0600"
+    # Un jeu de règles invalide, chargé au redémarrage, laisse le serveur
+    # sans filtrage — ou sans accès. nft -c le refuse avant écriture.
+    validate: "nft -c -f %s"
+  notify: Recharger nftables
+
+- name: Activer nftables au démarrage
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: true
+    state: started
+
+# --- Étage 2 : le trafic vers les conteneurs --------------------------------
+
+- name: Déposer le filtrage de la chaîne DOCKER-USER
+  ansible.builtin.template:
+    src: pare-feu-docker.sh.j2
+    dest: /usr/local/sbin/pare-feu-docker.sh
+    owner: root
+    group: root
+    mode: "0700"
+  notify: Rejouer le filtrage Docker
+
+- name: Déposer l'unité qui rejoue le filtrage Docker
+  ansible.builtin.template:
+    src: pare-feu-docker.service.j2
+    dest: /etc/systemd/system/pare-feu-docker.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Recharger systemd
+    - Rejouer le filtrage Docker
+
+- name: Activer le filtrage Docker
+  ansible.builtin.systemd_service:
+    name: pare-feu-docker
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: ansible_facts.services['docker.service'] is defined
+
+# --- Contrôle ---------------------------------------------------------------
+
+- name: Relever les règles effectivement chargées
+  ansible.builtin.command: nft list ruleset
+  changed_when: false
+  register: pare_feu_regles
+
+- name: La politique d'entrée doit être en rejet
+  ansible.builtin.assert:
+    that: "'policy drop' in pare_feu_regles.stdout"
+    fail_msg: >-
+      La chaîne d'entrée n'est pas en politique « drop » : le serveur accepte
+      tout ce qui n'est pas explicitement refusé, c'est-à-dire l'inverse de
+      ce qui est voulu.
+    quiet: true

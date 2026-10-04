@@ -1,0 +1,148 @@
+# {{ ansible_managed }}
+#
+# Paramètres noyau de durcissement.
+# Cadre : ANSSI-BP-028, sections « configuration du noyau » et « réseau ».
+
+# =========================================================================
+# Réseau — IPv4
+# =========================================================================
+
+# Ce serveur n'est pas un routeur : il n'a jamais à relayer un paquet.
+net.ipv4.ip_forward = 0
+net.ipv4.conf.all.forwarding = 0
+
+# Le routage par la source laisse l'émetteur choisir le chemin de retour.
+# C'est un mécanisme d'usurpation, sans usage légitime ici.
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+
+# Une redirection ICMP accepté permet de détourner le trafic sortant.
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+
+# Filtrage par chemin inverse : rejette un paquet dont l'adresse source ne
+# pourrait pas être jointe par l'interface d'arrivée.
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+
+# Journaliser les adresses manifestement usurpées.
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.default.log_martians = 1
+
+# Ne pas répondre aux diffusions ICMP : évite de servir d'amplificateur.
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# Les SYN cookies encaissent une inondation de SYN sans table de connexions
+# saturée. Sur un serveur exposé, c'est gratuit et utile.
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.tcp_synack_retries = 2
+
+# Refuser les paquets arrivant sur une interface qui n'est pas la leur.
+net.ipv4.conf.all.arp_ignore = 1
+net.ipv4.conf.all.arp_announce = 2
+
+# TIME-WAIT assassin : réduit l'occupation de la table sur un proxy chargé.
+net.ipv4.tcp_rfc1337 = 1
+
+# Un port publié sur 127.0.0.1 doit rester joignable depuis la seule machine.
+#
+# C'est la valeur par défaut du noyau, et elle est figée ici EXPRÈS. À 1, le
+# noyau accepte de router vers 127.0.0.0/8 des paquets arrivés par une
+# interface réseau : un service publié sur la boucle locale redevient
+# joignable depuis l'extérieur. Or n8n n'est publié que sur 127.0.0.1 et le
+# tunnel SSH est son unique chemin d'administration — tout le dispositif
+# reposerait alors sur rien.
+#
+# Le piège est qu'on est tenté de la passer à 1 : c'est le contournement qui
+# circule quand une publication sur la boucle locale ne répond pas. La vraie
+# cause est ailleurs — le relais Docker désactivé — et elle est traitée dans
+# le rôle docker, où `userland-proxy` est laissé actif pour cette raison.
+net.ipv4.conf.all.route_localnet = 0
+net.ipv4.conf.default.route_localnet = 0
+
+# =========================================================================
+# Réseau — IPv6
+# =========================================================================
+# L'IPv6 n'est pas désactivée : OVH en fournit une et la couper priverait le
+# serveur de la moitié de l'Internet. Elle est durcie comme l'IPv4.
+
+net.ipv6.conf.all.forwarding = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv6.conf.default.accept_source_route = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+
+# Les annonces de routeur n'ont pas à reconfigurer un serveur dont l'adresse
+# est fixe. Accepter une RA, c'est accepter qu'un voisin devienne la
+# passerelle par défaut.
+net.ipv6.conf.all.accept_ra = 0
+net.ipv6.conf.default.accept_ra = 0
+
+# =========================================================================
+# Noyau
+# =========================================================================
+
+# Masquer les adresses du noyau dans /proc : elles servent à contourner KASLR.
+kernel.kptr_restrict = 2
+
+# Restreindre dmesg aux comptes privilégiés : les journaux noyau révèlent
+# des adresses et l'état interne.
+kernel.dmesg_restrict = 1
+
+# Empêcher un processus d'inspecter la mémoire d'un autre, même du même
+# utilisateur. Coupe une voie classique de vol d'identifiants en mémoire.
+kernel.yama.ptrace_scope = 1
+
+# Interdire les liens symboliques et physiques piégés dans les répertoires
+# partagés en écriture — la faille de /tmp par excellence.
+fs.protected_symlinks = 1
+fs.protected_hardlinks = 1
+fs.protected_fifos = 2
+fs.protected_regular = 2
+
+# Espaces de noms utilisateur non privilégiés : la brique de base de la
+# plupart des élévations de privilèges locales récentes.
+#
+# Le levier a changé de nom. Jusqu'à Ubuntu 22.04, c'était le correctif Debian
+# `kernel.unprivileged_userns_clone`. Depuis 24.04, il a été retiré au profit
+# d'une restriction portée par AppArmor. Écrire la mauvaise clé ne fait pas
+# qu'être sans effet : `sysctl --system` s'interrompt en erreur, et les
+# paramètres qui suivent dans le fichier ne sont jamais appliqués.
+#
+# Docker en mode classique (rootful), celui retenu ici, n'en a pas besoin.
+# En mode rootless, cette ligne casse tout.
+{% if ansible_facts['distribution_major_version'] | int >= 24 %}
+kernel.apparmor_restrict_unprivileged_userns = 1
+{% else %}
+kernel.unprivileged_userns_clone = 0
+{% endif %}
+
+# Pas de BPF pour les comptes non privilégiés.
+kernel.unprivileged_bpf_disabled = 1
+net.core.bpf_jit_harden = 2
+
+# Les fichiers de vidage mémoire d'un binaire setuid peuvent contenir des
+# secrets et ne doivent pas être écrits.
+fs.suid_dumpable = 0
+
+# Désactiver la séquence magique SysRq, qui permet des actions directes sur
+# le noyau depuis la console.
+kernel.sysrq = 0
+
+# Aléa d'espace d'adressage complet.
+kernel.randomize_va_space = 2
+
+# Restreindre l'accès aux compteurs de performance, utilisables pour des
+# attaques par canal auxiliaire.
+kernel.perf_event_paranoid = 3
+
+# Interdire le chargement de modules après le démarrage serait l'étape
+# suivante (kernel.modules_disabled = 1), mais elle empêche Docker de charger
+# les modules réseau dont il a besoin à la volée. Non retenu, voir
+# docs/conformite-anssi.md.

@@ -1,0 +1,43 @@
+---
+name: Contrôles
+
+# Le dépôt ne déploie rien : il décrit. Ces contrôles vérifient que la
+# description est valide avant qu'elle n'atteigne un serveur.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  controles:
+    name: Lint et validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les outils
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-core ansible-lint yamllint jinja2
+
+      - name: Installer les collections Ansible
+        # -p ansible/collections : le meme chemin que celui declare dans
+        # ansible.cfg et attendu par scripts/verifier.sh. Sans -p, elles
+        # atterrissent dans ~/.ansible/collections et ansible-playbook ne les
+        # trouve pas depuis la racine du depot.
+        run: ansible-galaxy collection install -r ansible/requirements.yml -p ansible/collections
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Contrôles
+        run: ./scripts/verifier.sh

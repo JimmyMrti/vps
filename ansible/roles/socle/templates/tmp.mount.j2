@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+#
+# /tmp en mémoire, sans exécution possible.
+#
+# noexec seul n'arrête pas un attaquant déterminé (il reste `sh script`), mais
+# il bloque la grande majorité des charges automatisées, qui déposent un
+# binaire dans /tmp et l'exécutent directement.
+
+[Unit]
+Description=Repertoire temporaire /tmp (durci)
+Documentation=https://github.com/JimmyMrti/vps
+ConditionPathIsSymbolicLink=!/tmp
+DefaultDependencies=no
+Conflicts=umount.target
+Before=local-fs.target umount.target
+
+[Mount]
+What=tmpfs
+Where=/tmp
+Type=tmpfs
+Options=mode=1777,strictatime,nosuid,nodev,noexec,size={{ (ansible_memtotal_mb / 4) | int }}M
+
+[Install]
+WantedBy=local-fs.target

@@ -1,0 +1,45 @@
+---
+# Paquets retirés : ils écoutent le réseau ou élargissent la surface sans
+# servir sur un serveur applicatif.
+socle_paquets_indesirables:
+  - telnet
+  - rsh-client
+  - nis
+  - talk
+  - ldap-utils
+  - avahi-daemon
+  - cups
+  - rpcbind
+  - nfs-common
+  - snapd
+
+socle_paquets_utiles:
+  - ca-certificates
+  - curl
+  - gnupg
+  - apparmor
+  - apparmor-utils
+  - acl
+  - chrony
+  - haveged
+  - lsb-release
+  - unzip
+  - vim
+
+# Le noyau expose des fonctions dont un serveur de ce type n'a pas l'usage.
+# Chacune retirée est une classe entière d'exploitation en moins.
+socle_modules_interdits:
+  - cramfs
+  - freevxfs
+  - jffs2
+  - hfs
+  - hfsplus
+  - squashfs
+  - udf
+  - usb-storage
+  - dccp
+  - sctp
+  - rds
+  - tipc
+  - firewire-core
+  - bluetooth
