@@ -1,0 +1,19 @@
+[Unit]
+Description=Verification d'integrite du depot de sauvegarde
+Documentation=https://github.com/jimmymrti/vps
+After=docker.service network-online.target
+OnFailure=alerte@%n.service
+
+[Service]
+Type=oneshot
+# 5 % des donnees relues reellement : verifier les seules metadonnees laisse
+# passer une corruption du contenu.
+ExecStart=/usr/bin/restic check --read-data-subset=5%%
+TimeoutStartSec=3600
+EnvironmentFile=/opt/vps/secrets/sauvegarde/restic.env
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true

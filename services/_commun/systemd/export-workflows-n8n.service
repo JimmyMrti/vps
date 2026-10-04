@@ -1,0 +1,27 @@
+[Unit]
+Description=Exporte les workflows n8n vers leur depot prive
+Documentation=https://github.com/jimmymrti/vps
+After=docker.service network-online.target
+Requires=docker.service
+OnFailure=alerte@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vps/services/_commun/export-workflows-n8n.sh
+TimeoutStartSec=600
+
+# Jeton GitHub a portee unique : ecriture sur le seul depot des workflows.
+# Ecrire depuis le VPS vers GitHub suppose un jeton d'ecriture sur la machine ;
+# qu'il ne puisse rien faire d'autre est ce qui rend l'affaire acceptable. En
+# particulier, il n'a aucun droit sur le depot d'infrastructure, dont
+# dependrait la reconstruction du serveur.
+EnvironmentFile=/opt/vps/secrets/sauvegarde/github.env
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/sauvegardes
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true

@@ -1,0 +1,13 @@
+[Unit]
+Description=Declenche la sauvegarde quotidienne
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+# Evite de taper le stockage objet a la seconde ronde.
+RandomizedDelaySec=15min
+# Rattrape une execution manquee si la machine etait eteinte.
+Persistent=true
+Unit=sauvegarde.service
+
+[Install]
+WantedBy=timers.target

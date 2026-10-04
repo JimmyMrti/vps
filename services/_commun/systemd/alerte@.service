@@ -1,0 +1,13 @@
+[Unit]
+Description=Signale l'echec de %i
+
+[Service]
+Type=oneshot
+# ALERTE_WEBHOOK vit dans un fichier 0600 root:root, hors depot.
+EnvironmentFile=-/opt/vps/secrets/sauvegarde/alerte.env
+ExecStart=/opt/vps/services/_commun/alerte.sh %i
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
